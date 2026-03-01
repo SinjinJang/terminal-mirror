@@ -1004,6 +1004,13 @@
     connectCommentWs();
   }
 
+  document.getElementById('refreshSessionsBtn').addEventListener('click', async function () {
+    this.classList.add('spinning');
+    await refreshSessions();
+    const btn = this;
+    setTimeout(() => btn.classList.remove('spinning'), 600);
+  });
+
   sessionSelect.addEventListener('change', () => {
     const pid = parseInt(sessionSelect.value, 10);
     if (!isNaN(pid)) {
