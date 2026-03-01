@@ -97,6 +97,8 @@ tm mirror --remote
 ## Web UI Features
 
 - **Live terminal** — xterm.js rendering with full scrollback history
+- **Multi-session** — Session selector dropdown with manual refresh button
+- **Auto-cleanup** — Disconnected sessions are automatically removed from the list
 - **Inline comments** — Select text, click the float button, add comments (GitHub-style)
 - **Line selection** — Click/drag the gutter to select line ranges
 - **File viewer** — Clickable file paths open a syntax-highlighted viewer
@@ -115,6 +117,7 @@ tm mirror --remote
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/sessions` | List all active sessions |
 | `GET` | `/api/status` | Wrapper status (cols, rows, pid, connected) |
 | `POST` | `/api/submit` | Submit comments and messages |
 | `GET` | `/api/poll` | Long-poll for submitted messages (120s timeout) |
