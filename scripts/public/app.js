@@ -17,6 +17,7 @@
   const COMMENT_COLORS = ['#ff9e64', '#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff'];
   const SETTINGS_KEY = 'terminal-mirror-settings';
   const DEFAULT_SETTINGS = { fontSize: 13, lineHeight: 1.4, scrollback: 50000 };
+  const SESSION_REFRESH_MS = 5000;
 
   // ── State ──
   let comments = [];       // pending (not yet submitted)
@@ -29,6 +30,10 @@
   let fitAddon = null;
   let serverCols = null;
   const knownBatchIds = new Set();
+
+  // ── Session state ──
+  let currentSessionPid = null;
+  let sessionRefreshTimer = null;
 
   // ── Settings ──
   function clampNum(val, min, max) { return Math.min(max, Math.max(min, val)); }
@@ -88,6 +93,7 @@
   const lineHeightValue = document.getElementById('lineHeightValue');
   const scrollbackInput = document.getElementById('scrollbackInput');
   const settingsReset = document.getElementById('settingsReset');
+  const sessionSelect = document.getElementById('sessionSelect');
 
   // ── xterm.js setup ──
   let lastMousePos = { x: 0, y: 0 };
@@ -545,6 +551,7 @@
       var params = new URLSearchParams({ path: fp });
       if (ln > 0) params.set('line', String(ln));
       if (authToken) params.set('token', authToken);
+      if (currentSessionPid) params.set('session', String(currentSessionPid));
       window.open('/viewer.html?' + params.toString(), '_blank');
     }
 
@@ -731,7 +738,8 @@
       }, 300);
     }
 
-    authFetch('/api/submit', {
+    const sessionQuery = currentSessionPid ? `?session=${currentSessionPid}` : '';
+    authFetch(`/api/submit${sessionQuery}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ comments: hasComments ? comments : [], message: message || undefined, batchId }),
@@ -874,6 +882,135 @@
     }
   }
 
+  // ── Session management ──
+  function getSessionFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const s = params.get('session');
+    return s ? parseInt(s, 10) : null;
+  }
+
+  function updateUrlSession(pid) {
+    const params = new URLSearchParams(window.location.search);
+    if (pid) {
+      params.set('session', String(pid));
+    } else {
+      params.delete('session');
+    }
+    const newUrl = window.location.pathname + '?' + params.toString();
+    history.replaceState(null, '', newUrl);
+  }
+
+  async function fetchSessions() {
+    try {
+      const resp = await authFetch('/api/sessions');
+      if (!resp.ok) return [];
+      return await resp.json();
+    } catch { return []; }
+  }
+
+  function formatSessionLabel(s) {
+    const cmd = s.cmd || 'unknown';
+    const status = s.connected ? '' : ' (disconnected)';
+    return `PID ${s.pid}: ${cmd}${status}`;
+  }
+
+  function updateSessionSelect(sessionsList) {
+    const prevValue = sessionSelect.value;
+    sessionSelect.innerHTML = '';
+
+    if (sessionsList.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No sessions';
+      sessionSelect.appendChild(opt);
+      return;
+    }
+
+    for (const s of sessionsList) {
+      const opt = document.createElement('option');
+      opt.value = String(s.pid);
+      opt.textContent = formatSessionLabel(s);
+      if (!s.connected) opt.className = 'disconnected';
+      sessionSelect.appendChild(opt);
+    }
+
+    // Restore previous selection if still valid
+    if (prevValue && sessionsList.some(s => String(s.pid) === prevValue)) {
+      sessionSelect.value = prevValue;
+    }
+  }
+
+  async function refreshSessions() {
+    const sessionsList = await fetchSessions();
+    updateSessionSelect(sessionsList);
+
+    // If we have no current session, auto-select
+    if (!currentSessionPid && sessionsList.length > 0) {
+      const urlSession = getSessionFromUrl();
+      const target = urlSession && sessionsList.some(s => s.pid === urlSession)
+        ? urlSession
+        : sessionsList[0].pid;
+      switchToSession(target);
+    } else if (currentSessionPid) {
+      sessionSelect.value = String(currentSessionPid);
+    }
+
+    return sessionsList;
+  }
+
+  function switchToSession(pid) {
+    if (pid === currentSessionPid) return;
+
+    // Close current WebSocket connections
+    if (terminalWs) {
+      terminalWs.onclose = null; // prevent reconnect
+      terminalWs.close();
+      terminalWs = null;
+    }
+    if (commentWs) {
+      commentWs.onclose = null;
+      commentWs.close();
+      commentWs = null;
+    }
+
+    // Reset terminal state
+    if (xterm) {
+      xterm.reset();
+      xterm.clear();
+    }
+    serverCols = null;
+
+    // Clear per-session state
+    comments = [];
+    submitted = [];
+    knownBatchIds.clear();
+    expandedCommentId = null;
+    renderCommentOverlays();
+    updateBadge();
+
+    // Update state
+    currentSessionPid = pid;
+    sessionSelect.value = String(pid);
+    updateUrlSession(pid);
+
+    // Reset reconnect counters
+    terminalReconnects = 0;
+    commentReconnects = 0;
+    clearDisconnectTimer();
+    serverShutdown = false;
+
+    // Connect to new session
+    connectTerminalWs();
+    connectCommentWs();
+  }
+
+  sessionSelect.addEventListener('change', () => {
+    const pid = parseInt(sessionSelect.value, 10);
+    if (!isNaN(pid)) {
+      switchToSession(pid);
+    }
+  });
+
   // ── WebSocket connections ──
   let commentWs = null;
   let terminalReconnects = 0;
@@ -897,14 +1034,18 @@
   function handleShutdown() {
     serverShutdown = true;
     clearDisconnectTimer();
+    if (sessionRefreshTimer) { clearInterval(sessionRefreshTimer); sessionRefreshTimer = null; }
     window.close();
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:1.2em;">Session ended. You can close this tab.</div>';
   }
 
   function connectTerminalWs() {
+    if (!currentSessionPid) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsTokenQuery = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
-    terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal${wsTokenQuery}`);
+    const params = new URLSearchParams();
+    if (authToken) params.set('token', authToken);
+    params.set('session', String(currentSessionPid));
+    terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal?${params.toString()}`);
     terminalWs.binaryType = 'arraybuffer';
 
     terminalWs.onopen = () => {
@@ -934,9 +1075,12 @@
       }
     };
 
+    const sessionPidAtConnect = currentSessionPid;
     terminalWs.onclose = () => {
       wsStatus.style.background = '#555';
       if (serverShutdown) return;
+      // Only reconnect if we're still on the same session
+      if (currentSessionPid !== sessionPidAtConnect) return;
       startDisconnectTimer();
       terminalReconnects++;
       if (terminalReconnects <= MAX_RECONNECT) {
@@ -951,9 +1095,12 @@
   }
 
   function connectCommentWs() {
+    if (!currentSessionPid) return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsTokenQuery = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
-    commentWs = new WebSocket(`${proto}//${location.host}/ws/comments${wsTokenQuery}`);
+    const params = new URLSearchParams();
+    if (authToken) params.set('token', authToken);
+    params.set('session', String(currentSessionPid));
+    commentWs = new WebSocket(`${proto}//${location.host}/ws/comments?${params.toString()}`);
 
     commentWs.onopen = () => {
       commentReconnects = 0;
@@ -972,7 +1119,9 @@
       } catch {}
     };
 
+    const sessionPidAtConnect = currentSessionPid;
     commentWs.onclose = () => {
+      if (currentSessionPid !== sessionPidAtConnect) return;
       commentReconnects++;
       if (commentReconnects <= MAX_RECONNECT) {
         const delay = Math.min(2000 * Math.pow(2, commentReconnects - 1), 30000);
@@ -984,8 +1133,13 @@
   // ── Init ──
   loadingState.remove();
   initXterm();
-  connectTerminalWs();
-  connectCommentWs();
   updateBadge();
-  if (xterm) xterm.focus();
+
+  // Fetch sessions and auto-connect
+  refreshSessions().then(() => {
+    if (xterm) xterm.focus();
+  });
+
+  // Periodic session list refresh
+  sessionRefreshTimer = setInterval(refreshSessions, SESSION_REFRESH_MS);
 })();

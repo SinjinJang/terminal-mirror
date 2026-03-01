@@ -129,6 +129,34 @@ body {
   margin-top: 4px;
 }
 
+/* Session selector */
+.session-select {
+  margin-left: 12px;
+  background: #1a1a1a;
+  color: #e4e4e4;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  max-width: 280px;
+  transition: border-color 0.15s;
+}
+
+.session-select:focus { border-color: #7aa2f7; }
+.session-select:hover { border-color: #555; }
+
+.session-select option {
+  background: #1a1a1a;
+  color: #e4e4e4;
+}
+
+.session-select option.disconnected {
+  color: #666;
+}
+
 /* Main layout */
 .main {
   display: flex;

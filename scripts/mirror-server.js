@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// mirror-server.js — Detachable web mirror server.
-// Connects to a tm-wrapper Unix socket and serves a web UI for terminal mirroring.
-// Can be attached/detached at any time without affecting the wrapped program.
+// mirror-server.js — Multi-session web mirror server.
+// Connects to multiple tm-wrapper Unix sockets and serves a web UI
+// with session switching for terminal mirroring.
 
 const http = require('http');
 const net = require('net');
@@ -22,6 +22,7 @@ const MAX_SELECTED_TEXT = 80;
 const MAX_MESSAGE_QUEUE = 100;
 const SOCKET_RECONNECT_MS = 3000;
 const SOCKET_RECONNECT_MAX = 10;
+const SESSION_SCAN_INTERVAL_MS = 5000;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -31,14 +32,11 @@ const MIME_TYPES = {
 
 // ── Parse CLI args ──
 const rawArgs = process.argv.slice(2);
-let explicitSocket = null;
 let noOpen = false;
 let remoteMode = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
-  if ((rawArgs[i] === '-s' || rawArgs[i] === '--socket') && rawArgs[i + 1]) {
-    explicitSocket = rawArgs[++i];
-  } else if (rawArgs[i] === '--no-open') {
+  if (rawArgs[i] === '--no-open') {
     noOpen = true;
   } else if (rawArgs[i] === '--remote') {
     remoteMode = true;
@@ -56,48 +54,59 @@ try {
 }
 
 // ── State ──
-let wrapperSocket = null;
-let wrapperConnected = false;
-let wrapperInfo = { cwd: process.cwd(), cols: 80, rows: 24, pid: null, cmd: '' };
+const sessions = new Map(); // keyed by wrapper PID
 let serverPort = null;
-let socketReconnects = 0;
-let authToken = null;
-const terminalClients = new Set();
-const commentClients = new Set();
-const messageQueue = [];
-const pollWaiters = [];
+const masterToken = crypto.randomBytes(24).toString('hex');
+let scanTimer = null;
 
-function resolveNextPoll() {
-  while (pollWaiters.length > 0 && messageQueue.length > 0) {
-    const { res, timer } = pollWaiters.shift();
+function createSession(pid, sockPath) {
+  return {
+    pid,
+    sockPath,
+    socket: null,
+    connected: false,
+    wrapperInfo: { cwd: process.cwd(), cols: 80, rows: 24, pid, cmd: '', startedAt: null },
+    wrapperToken: null,
+    lineBuf: '',
+    reconnects: 0,
+    terminalClients: new Set(),
+    commentClients: new Set(),
+    messageQueue: [],
+    pollWaiters: [],
+  };
+}
+
+function resolveNextPoll(session) {
+  while (session.pollWaiters.length > 0 && session.messageQueue.length > 0) {
+    const { res, timer } = session.pollWaiters.shift();
     clearTimeout(timer);
-    const msg = messageQueue.shift();
+    const msg = session.messageQueue.shift();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(msg));
   }
 }
 
-// ── Helpers: broadcast ──
-function broadcastTerminalJSON(obj) {
+// ── Helpers: broadcast (per-session) ──
+function broadcastTerminalJSON(session, obj) {
   const msg = JSON.stringify(obj);
-  for (const ws of terminalClients) {
+  for (const ws of session.terminalClients) {
     if (ws.readyState === WebSocket.OPEN) {
       try { ws.send(msg); } catch { /* ws may be closing */ }
     }
   }
 }
 
-function broadcastTerminalBinary(buf) {
-  for (const ws of terminalClients) {
+function broadcastTerminalBinary(session, buf) {
+  for (const ws of session.terminalClients) {
     if (ws.readyState === WebSocket.OPEN) {
       try { ws.send(buf); } catch { /* ws may be closing */ }
     }
   }
 }
 
-function broadcastCommentJSON(obj) {
+function broadcastCommentJSON(session, obj) {
   const msg = JSON.stringify(obj);
-  for (const ws of commentClients) {
+  for (const ws of session.commentClients) {
     if (ws.readyState === WebSocket.OPEN) {
       try { ws.send(msg); } catch { /* ws may be closing */ }
     }
@@ -105,28 +114,20 @@ function broadcastCommentJSON(obj) {
 }
 
 // ── Socket discovery ──
-function findSocketPath() {
-  // 1. Explicit socket path from CLI
-  if (explicitSocket) return explicitSocket;
-
-  // 2. TM_SOCKET environment variable
-  if (process.env.TM_SOCKET) return process.env.TM_SOCKET;
-
-  // 3. Scan /tmp/tm-*.sock for active sockets
+function scanForWrappers() {
   const tmpDir = os.tmpdir();
-  const candidates = [];
+  const found = new Map(); // pid -> sockPath
   try {
     for (const entry of fs.readdirSync(tmpDir)) {
       if (entry.startsWith('tm-') && entry.endsWith('.sock')) {
         const sockPath = path.join(tmpDir, entry);
-        // Extract PID and check if process is alive
         const pidStr = entry.slice(3, -5);
         const pid = parseInt(pidStr, 10);
         if (isNaN(pid)) continue;
 
         try {
           process.kill(pid, 0); // Check if process exists
-          candidates.push({ path: sockPath, pid, mtime: fs.statSync(sockPath).mtimeMs });
+          found.set(pid, sockPath);
         } catch {
           // Process dead — stale socket, clean up
           try { fs.unlinkSync(sockPath); } catch { /* already removed */ }
@@ -134,146 +135,160 @@ function findSocketPath() {
       }
     }
   } catch { /* tmpdir read error */ }
+  return found;
+}
 
-  if (candidates.length === 0) return null;
+function discoverAndConnect() {
+  const found = scanForWrappers();
 
-  // Return the most recently modified socket
-  candidates.sort((a, b) => b.mtime - a.mtime);
-  return candidates[0].path;
+  // Connect to newly discovered wrappers
+  for (const [pid, sockPath] of found) {
+    if (!sessions.has(pid)) {
+      const session = createSession(pid, sockPath);
+      sessions.set(pid, session);
+      connectToWrapper(session);
+    }
+  }
+
+  // Mark disconnected sessions whose sockets are gone
+  for (const [pid, session] of sessions) {
+    if (!found.has(pid) && session.connected) {
+      // Wrapper is gone, socket will close on its own
+    }
+  }
 }
 
 // ── Connect to wrapper Unix socket ──
-function connectToWrapper() {
-  const sockPath = findSocketPath();
-
-  // Try to read auth token from .token file (parallel to .sock file)
-  if (!authToken && sockPath) {
-    const tokenFilePath = sockPath.replace(/\.sock$/, '.token');
+function connectToWrapper(session) {
+  // Try to read auth token from .token file
+  if (!session.wrapperToken && session.sockPath) {
+    const tokenFilePath = session.sockPath.replace(/\.sock$/, '.token');
     try {
-      authToken = fs.readFileSync(tokenFilePath, 'utf-8').trim();
+      session.wrapperToken = fs.readFileSync(tokenFilePath, 'utf-8').trim();
     } catch { /* token file may not exist yet */ }
   }
 
-  if (!sockPath) {
-    process.stderr.write('No active tm-wrapper session found.\n');
-    process.stderr.write('Start one with: tm <command>\n');
-    if (socketReconnects < SOCKET_RECONNECT_MAX) {
-      socketReconnects++;
-      process.stderr.write(`Retrying in ${SOCKET_RECONNECT_MS / 1000}s... (${socketReconnects}/${SOCKET_RECONNECT_MAX})\n`);
-      setTimeout(connectToWrapper, SOCKET_RECONNECT_MS);
-    } else {
-      process.stderr.write('Max reconnect attempts reached. Exiting.\n');
-      process.exit(1);
-    }
-    return;
-  }
+  process.stderr.write(`Connecting to wrapper PID ${session.pid}: ${session.sockPath}\n`);
 
-  process.stderr.write(`Connecting to wrapper: ${sockPath}\n`);
+  const sock = net.createConnection(session.sockPath);
+  session.socket = sock;
+  session.lineBuf = '';
 
-  wrapperSocket = net.createConnection(sockPath);
-  let lineBuf = '';
-
-  wrapperSocket.on('connect', () => {
-    wrapperConnected = true;
-    socketReconnects = 0;
-    process.stderr.write('Connected to wrapper.\n');
-    broadcastTerminalJSON({ type: 'wrapper_status', connected: true });
+  sock.on('connect', () => {
+    session.connected = true;
+    session.reconnects = 0;
+    process.stderr.write(`Connected to wrapper PID ${session.pid}.\n`);
+    broadcastTerminalJSON(session, { type: 'wrapper_status', connected: true });
   });
 
-  wrapperSocket.on('data', (chunk) => {
-    lineBuf += chunk.toString();
+  sock.on('data', (chunk) => {
+    session.lineBuf += chunk.toString();
     let newlineIdx;
-    while ((newlineIdx = lineBuf.indexOf('\n')) !== -1) {
-      const line = lineBuf.substring(0, newlineIdx);
-      lineBuf = lineBuf.substring(newlineIdx + 1);
+    while ((newlineIdx = session.lineBuf.indexOf('\n')) !== -1) {
+      const line = session.lineBuf.substring(0, newlineIdx);
+      session.lineBuf = session.lineBuf.substring(newlineIdx + 1);
       if (!line.trim()) continue;
       try {
         const msg = JSON.parse(line);
-        handleWrapperMessage(msg);
+        handleWrapperMessage(session, msg);
       } catch { /* ignore malformed JSON */ }
     }
   });
 
-  wrapperSocket.on('close', () => {
-    wrapperConnected = false;
-    wrapperSocket = null;
-    broadcastTerminalJSON({ type: 'wrapper_status', connected: false });
-    process.stderr.write('Disconnected from wrapper.\n');
+  sock.on('close', () => {
+    session.connected = false;
+    session.socket = null;
+    broadcastTerminalJSON(session, { type: 'wrapper_status', connected: false });
+    process.stderr.write(`Disconnected from wrapper PID ${session.pid}.\n`);
 
-    // Attempt reconnect
-    if (socketReconnects < SOCKET_RECONNECT_MAX) {
-      socketReconnects++;
-      setTimeout(connectToWrapper, SOCKET_RECONNECT_MS);
+    // Attempt reconnect if socket file still exists
+    if (session.reconnects < SOCKET_RECONNECT_MAX) {
+      try {
+        fs.accessSync(session.sockPath);
+        session.reconnects++;
+        setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
+      } catch {
+        // Socket file gone — wrapper exited, don't reconnect
+      }
     }
   });
 
-  wrapperSocket.on('error', (err) => {
+  sock.on('error', (err) => {
     if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') {
-      // Socket doesn't exist or wrapper is gone
-      wrapperConnected = false;
-      wrapperSocket = null;
-      if (socketReconnects < SOCKET_RECONNECT_MAX) {
-        socketReconnects++;
-        setTimeout(connectToWrapper, SOCKET_RECONNECT_MS);
+      session.connected = false;
+      session.socket = null;
+      if (session.reconnects < SOCKET_RECONNECT_MAX) {
+        try {
+          fs.accessSync(session.sockPath);
+          session.reconnects++;
+          setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
+        } catch {
+          // Socket file gone
+        }
       }
     }
   });
 }
 
-function handleWrapperMessage(msg) {
+function handleWrapperMessage(session, msg) {
   if (!msg || !msg.type) return;
 
   switch (msg.type) {
     case 'hello':
-      wrapperInfo = {
+      session.wrapperInfo = {
         cwd: msg.cwd || process.cwd(),
         cols: msg.cols || 80,
         rows: msg.rows || 24,
-        pid: msg.pid || null,
+        pid: msg.pid || session.pid,
         cmd: msg.cmd || '',
         startedAt: msg.startedAt || null,
       };
-      // Capture auth token from wrapper hello message
-      if (msg.token && !authToken) {
-        authToken = msg.token;
+      if (msg.token && !session.wrapperToken) {
+        session.wrapperToken = msg.token;
       }
-      // Send resize to browser clients
-      broadcastTerminalJSON({ type: 'resize', cols: wrapperInfo.cols, rows: wrapperInfo.rows });
+      broadcastTerminalJSON(session, { type: 'resize', cols: session.wrapperInfo.cols, rows: session.wrapperInfo.rows });
       break;
 
     case 'scrollback': {
-      // Decode base64 and send as binary to terminal clients
       const buf = Buffer.from(msg.data, 'base64');
-      broadcastTerminalBinary(buf);
+      broadcastTerminalBinary(session, buf);
       break;
     }
 
     case 'output': {
-      // Decode base64 and send as binary to terminal clients
       const buf = Buffer.from(msg.data, 'base64');
-      broadcastTerminalBinary(buf);
+      broadcastTerminalBinary(session, buf);
       break;
     }
 
     case 'resize':
-      wrapperInfo.cols = msg.cols;
-      wrapperInfo.rows = msg.rows;
-      broadcastTerminalJSON({ type: 'resize', cols: msg.cols, rows: msg.rows });
+      session.wrapperInfo.cols = msg.cols;
+      session.wrapperInfo.rows = msg.rows;
+      broadcastTerminalJSON(session, { type: 'resize', cols: msg.cols, rows: msg.rows });
       break;
 
     case 'exit':
-      broadcastTerminalJSON({ type: 'wrapper_status', connected: false, exitCode: msg.exitCode });
+      broadcastTerminalJSON(session, { type: 'wrapper_status', connected: false, exitCode: msg.exitCode });
       break;
   }
 }
 
 // ── Send input to wrapper via socket ──
-function sendToWrapper(obj) {
-  if (wrapperSocket && wrapperConnected) {
+function sendToWrapper(session, obj) {
+  if (session.socket && session.connected) {
     try {
-      wrapperSocket.write(JSON.stringify(obj) + '\n');
+      session.socket.write(JSON.stringify(obj) + '\n');
     } catch { /* socket may be closing */ }
   }
+}
+
+// ── Session lookup helper ──
+function getSessionFromQuery(url) {
+  const pidStr = url.searchParams.get('session');
+  if (!pidStr) return null;
+  const pid = parseInt(pidStr, 10);
+  if (isNaN(pid)) return null;
+  return sessions.get(pid) || null;
 }
 
 // ── HTTP server ──
@@ -310,18 +325,15 @@ function readBody(req) {
 
 // ── Auth helpers ──
 function isValidToken(candidate) {
-  if (!authToken) return true; // backward compat: no token = open access
-  if (!candidate || candidate.length !== authToken.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(authToken));
+  if (!candidate || candidate.length !== masterToken.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(masterToken));
 }
 
 function extractToken(req) {
-  // 1. Authorization: Bearer <token>
   const authHeader = req.headers['authorization'] || '';
   if (authHeader.startsWith('Bearer ')) {
     return authHeader.slice(7);
   }
-  // 2. ?token= query parameter
   const url = new URL(req.url, 'http://localhost');
   return url.searchParams.get('token') || '';
 }
@@ -332,7 +344,8 @@ function rejectUnauthorized(res) {
 }
 
 const httpServer = http.createServer(async (req, res) => {
-  const pathname = new URL(req.url, 'http://localhost').pathname;
+  const url = new URL(req.url, 'http://localhost');
+  const pathname = url.pathname;
 
   const requestOrigin = req.headers.origin || '';
   const allowedOrigin = remoteMode
@@ -352,21 +365,57 @@ const httpServer = http.createServer(async (req, res) => {
     }
   }
 
-  // Status endpoint
+  // Sessions list endpoint
+  if (req.method === 'GET' && pathname === '/api/sessions') {
+    const list = [];
+    for (const [pid, session] of sessions) {
+      list.push({
+        pid,
+        cmd: session.wrapperInfo.cmd,
+        cwd: session.wrapperInfo.cwd,
+        startedAt: session.wrapperInfo.startedAt,
+        connected: session.connected,
+      });
+    }
+    // Sort by startedAt descending (most recent first)
+    list.sort((a, b) => {
+      if (!a.startedAt && !b.startedAt) return 0;
+      if (!a.startedAt) return 1;
+      if (!b.startedAt) return -1;
+      return new Date(b.startedAt) - new Date(a.startedAt);
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(list));
+    return;
+  }
+
+  // Status endpoint (session-aware)
   if (req.method === 'GET' && pathname === '/api/status') {
+    const session = getSessionFromQuery(url);
+    if (!session) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      cols: wrapperInfo.cols,
-      rows: wrapperInfo.rows,
-      pid: wrapperInfo.pid,
-      wrapperConnected,
-      cmd: wrapperInfo.cmd,
+      cols: session.wrapperInfo.cols,
+      rows: session.wrapperInfo.rows,
+      pid: session.wrapperInfo.pid,
+      wrapperConnected: session.connected,
+      cmd: session.wrapperInfo.cmd,
     }));
     return;
   }
 
-  // Submit comments + message → inject to PTY via wrapper + queue for poll
+  // Submit comments + message (session-aware)
   if (req.method === 'POST' && pathname === '/api/submit') {
+    const session = getSessionFromQuery(url);
+    if (!session) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
+      return;
+    }
     try {
       const body = await readBody(req);
       const { comments = [], message, batchId } = JSON.parse(body);
@@ -381,13 +430,13 @@ const httpServer = http.createServer(async (req, res) => {
 
       if (text) {
         const entry = { text, at: new Date().toISOString() };
-        if (messageQueue.length >= MAX_MESSAGE_QUEUE) messageQueue.shift();
-        messageQueue.push(entry);
-        resolveNextPoll();
+        if (session.messageQueue.length >= MAX_MESSAGE_QUEUE) session.messageQueue.shift();
+        session.messageQueue.push(entry);
+        resolveNextPoll(session);
 
         if (comments.length > 0) {
           const batch = comments.map(c => ({ ...c, submittedAt: entry.at }));
-          broadcastCommentJSON({ type: 'comments', comments: batch, batchId: batchId || null });
+          broadcastCommentJSON(session, { type: 'comments', comments: batch, batchId: batchId || null });
         }
       }
 
@@ -400,34 +449,46 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // Long-poll: wait for next message
+  // Long-poll: wait for next message (session-aware)
   if (req.method === 'GET' && pathname === '/api/poll') {
-    if (messageQueue.length > 0) {
-      const msg = messageQueue.shift();
+    const session = getSessionFromQuery(url);
+    if (!session) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
+      return;
+    }
+    if (session.messageQueue.length > 0) {
+      const msg = session.messageQueue.shift();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(msg));
       return;
     }
 
     const timer = setTimeout(() => {
-      const idx = pollWaiters.findIndex(w => w.res === res);
-      if (idx !== -1) pollWaiters.splice(idx, 1);
+      const idx = session.pollWaiters.findIndex(w => w.res === res);
+      if (idx !== -1) session.pollWaiters.splice(idx, 1);
       res.writeHead(204);
       res.end();
     }, POLL_TIMEOUT_MS);
 
-    pollWaiters.push({ res, timer });
+    session.pollWaiters.push({ res, timer });
     req.on('close', () => {
       clearTimeout(timer);
-      const idx = pollWaiters.findIndex(w => w.res === res);
-      if (idx !== -1) pollWaiters.splice(idx, 1);
+      const idx = session.pollWaiters.findIndex(w => w.res === res);
+      if (idx !== -1) session.pollWaiters.splice(idx, 1);
     });
     return;
   }
 
-  // Get all pending messages (non-blocking)
+  // Get all pending messages (session-aware)
   if (req.method === 'GET' && pathname === '/api/messages') {
-    const messages = messageQueue.splice(0);
+    const session = getSessionFromQuery(url);
+    if (!session) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
+      return;
+    }
+    const messages = session.messageQueue.splice(0);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ messages }));
     return;
@@ -441,9 +502,10 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // File viewer endpoint
+  // File viewer endpoint (session-aware)
   if (req.method === 'GET' && pathname === '/api/file') {
-    const url = new URL(req.url, 'http://localhost');
+    const session = getSessionFromQuery(url);
+    const cwd = session ? session.wrapperInfo.cwd : process.cwd();
     let filePath = url.searchParams.get('path');
     if (!filePath) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -453,8 +515,7 @@ const httpServer = http.createServer(async (req, res) => {
     if (filePath.startsWith('~/')) {
       filePath = path.join(os.homedir(), filePath.slice(2));
     }
-    // Resolve relative to wrapper's CWD
-    const resolved = path.resolve(wrapperInfo.cwd, filePath);
+    const resolved = path.resolve(cwd, filePath);
     try {
       const stat = fs.statSync(resolved);
       if (!stat.isFile()) {
@@ -468,7 +529,7 @@ const httpServer = http.createServer(async (req, res) => {
         return;
       }
       const content = fs.readFileSync(resolved, 'utf-8');
-      const relativePath = path.relative(wrapperInfo.cwd, resolved);
+      const relativePath = path.relative(cwd, resolved);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ path: resolved, relativePath, content }));
     } catch {
@@ -514,7 +575,6 @@ httpServer.on('upgrade', (request, socket, head) => {
     return;
   }
 
-  // Token validation for WebSocket upgrade
   const upgradeUrl = new URL(request.url, 'http://localhost');
   const wsToken = upgradeUrl.searchParams.get('token') || '';
   if (!isValidToken(wsToken)) {
@@ -524,42 +584,50 @@ httpServer.on('upgrade', (request, socket, head) => {
   }
 
   const pathname = upgradeUrl.pathname;
+  const pidStr = upgradeUrl.searchParams.get('session');
+  const pid = pidStr ? parseInt(pidStr, 10) : null;
+  const session = pid !== null ? sessions.get(pid) : null;
+
+  if (!session) {
+    socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+    socket.destroy();
+    return;
+  }
 
   if (pathname === '/ws/terminal') {
     wss.handleUpgrade(request, socket, head, (ws) => {
-      terminalClients.add(ws);
+      session.terminalClients.add(ws);
 
       // Send current resize info
       ws.send(JSON.stringify({
         type: 'resize',
-        cols: wrapperInfo.cols,
-        rows: wrapperInfo.rows,
+        cols: session.wrapperInfo.cols,
+        rows: session.wrapperInfo.rows,
       }));
 
       // Send wrapper connection status
       ws.send(JSON.stringify({
         type: 'wrapper_status',
-        connected: wrapperConnected,
+        connected: session.connected,
       }));
 
       ws.on('message', (msg) => {
         try {
           const data = JSON.parse(msg.toString());
           if (data.type === 'input' && data.data) {
-            // Forward input to wrapper via Unix socket
-            sendToWrapper({ type: 'input', data: data.data });
+            sendToWrapper(session, { type: 'input', data: data.data });
           }
         } catch { /* ignore malformed WebSocket message */ }
       });
 
-      ws.on('close', () => { terminalClients.delete(ws); });
-      ws.on('error', () => { terminalClients.delete(ws); });
+      ws.on('close', () => { session.terminalClients.delete(ws); });
+      ws.on('error', () => { session.terminalClients.delete(ws); });
     });
   } else if (pathname === '/ws/comments') {
     wss.handleUpgrade(request, socket, head, (ws) => {
-      commentClients.add(ws);
-      ws.on('close', () => { commentClients.delete(ws); });
-      ws.on('error', () => { commentClients.delete(ws); });
+      session.commentClients.add(ws);
+      ws.on('close', () => { session.commentClients.delete(ws); });
+      ws.on('error', () => { session.commentClients.delete(ws); });
     });
   } else {
     socket.destroy();
@@ -614,32 +682,37 @@ function openBrowser(url) {
 
 // ── Cleanup ──
 function cleanup(exitCode = 0) {
-  // Notify browser clients
+  if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+
   const shutdownMsg = JSON.stringify({ type: 'shutdown' });
-  for (const ws of terminalClients) {
-    try { if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg); } catch { /* closing */ }
-  }
-  for (const ws of commentClients) {
-    try { if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg); } catch { /* closing */ }
-  }
-  for (const ws of terminalClients) {
-    try { ws.close(1000, 'Mirror shutting down'); } catch { /* closed */ }
-  }
-  for (const ws of commentClients) {
-    try { ws.close(1000, 'Mirror shutting down'); } catch { /* closed */ }
-  }
 
-  // Flush waiting polls
-  while (pollWaiters.length > 0) {
-    const { res, timer } = pollWaiters.shift();
-    clearTimeout(timer);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ done: true }));
-  }
+  for (const [, session] of sessions) {
+    // Notify browser clients
+    for (const ws of session.terminalClients) {
+      try { if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg); } catch { /* closing */ }
+    }
+    for (const ws of session.commentClients) {
+      try { if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg); } catch { /* closing */ }
+    }
+    for (const ws of session.terminalClients) {
+      try { ws.close(1000, 'Mirror shutting down'); } catch { /* closed */ }
+    }
+    for (const ws of session.commentClients) {
+      try { ws.close(1000, 'Mirror shutting down'); } catch { /* closed */ }
+    }
 
-  // Close wrapper socket
-  if (wrapperSocket) {
-    try { wrapperSocket.end(); } catch { /* closing */ }
+    // Flush waiting polls
+    while (session.pollWaiters.length > 0) {
+      const { res, timer } = session.pollWaiters.shift();
+      clearTimeout(timer);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ done: true }));
+    }
+
+    // Close wrapper socket
+    if (session.socket) {
+      try { session.socket.end(); } catch { /* closing */ }
+    }
   }
 
   if (httpServer) {
@@ -654,31 +727,26 @@ process.on('SIGTERM', () => { cleanup(); });
 
 // ── Start ──
 async function start() {
-  // Token discovery: env → socket-matched token file
-  if (!authToken && process.env.TM_TOKEN) {
-    authToken = process.env.TM_TOKEN;
-  }
-  if (!authToken) {
-    const sockPath = findSocketPath();
-    if (sockPath) {
-      const tokenFilePath = sockPath.replace(/\.sock$/, '.token');
-      try {
-        authToken = fs.readFileSync(tokenFilePath, 'utf-8').trim();
-      } catch { /* not available yet, will get from hello */ }
-    }
-  }
-
   const bindAddr = remoteMode ? '0.0.0.0' : '127.0.0.1';
   serverPort = await listenOnAvailablePort(httpServer, START_PORT, MAX_PORT_SCAN, bindAddr);
-  const tokenQuery = authToken ? `?token=${authToken}` : '';
+  const tokenQuery = `?token=${masterToken}`;
   const host = remoteMode ? getLocalIP() : 'localhost';
   const url = `http://${host}:${serverPort}${tokenQuery}`;
   process.stderr.write(`PORT=${serverPort}\n`);
-  if (authToken) process.stderr.write(`TOKEN=${authToken}\n`);
+  process.stderr.write(`TOKEN=${masterToken}\n`);
   process.stderr.write(`Terminal Mirror: ${url}\n`);
 
-  // Connect to wrapper
-  connectToWrapper();
+  // Initial scan + connect to all active wrappers
+  discoverAndConnect();
+
+  // Periodic re-scan for new wrappers
+  scanTimer = setInterval(discoverAndConnect, SESSION_SCAN_INTERVAL_MS);
+
+  if (sessions.size === 0) {
+    process.stderr.write('No active tm-wrapper sessions found. Waiting for sessions...\n');
+  } else {
+    process.stderr.write(`Found ${sessions.size} active session(s).\n`);
+  }
 
   // Open browser
   if (!noOpen) {

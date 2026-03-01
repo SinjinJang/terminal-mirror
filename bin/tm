@@ -3,7 +3,7 @@
 #
 # Usage:
 #   tm <command> [args...]    Wrap a command in a PTY with mirror socket
-#   tm mirror [options]       Start mirror web server (attach to wrapper)
+#   tm start-server [opts]    Start multi-session mirror web server
 #   tm list                   List active tm-wrapper sessions
 
 set -euo pipefail
@@ -24,7 +24,7 @@ ensure_deps() {
 
 # Subcommand routing
 case "${1:-}" in
-  mirror)
+  start-server)
     shift
     ensure_deps
     exec node "$MIRROR_JS" "$@"
@@ -37,15 +37,15 @@ case "${1:-}" in
   -h|--help|"")
     echo "Usage:"
     echo "  tm <command> [args...]    Wrap a command in a PTY with mirror socket"
-    echo "  tm mirror [options]       Start mirror web server (attach to wrapper)"
+    echo "  tm start-server [opts]    Start multi-session mirror web server"
     echo "  tm list                   List active tm-wrapper sessions"
     echo ""
     echo "Examples:"
     echo "  tm claude --model sonnet  Wrap Claude with terminal mirror support"
     echo "  tm bash                   Wrap bash"
     echo "  tm vim file.txt           Wrap vim"
-    echo "  tm mirror                 Attach mirror to most recent session"
-    echo "  tm mirror -s /tmp/tm-1234.sock  Attach to specific session"
+    echo "  tm start-server           Start mirror server (auto-discovers all sessions)"
+    echo "  tm start-server --remote  Start mirror server accessible on LAN"
     exit 0
     ;;
   *)

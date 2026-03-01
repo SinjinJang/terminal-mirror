@@ -5,7 +5,7 @@ allowed-tools:
   - Bash
 ---
 
-Start the terminal mirror web server to mirror the current terminal session in a web browser.
+Start the terminal mirror web server to mirror terminal sessions in a web browser. The server auto-discovers all active tm-wrapper sessions and supports switching between them.
 
 ## Steps
 
@@ -30,9 +30,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/mirror-server.js" --no-open [--remote]
 
 6. Report the URL to the user: `http://localhost:<PORT>?token=<TOKEN>` (or `http://<LAN_IP>:<PORT>?token=<TOKEN>` in remote mode)
 
-7. Start a long-poll loop in the background with `run_in_background: true`:
+7. Start a long-poll loop in the background with `run_in_background: true`. You need a session PID — fetch sessions first:
 ```bash
-curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:<PORT>/api/poll
+SESSION_PID=$(curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:<PORT>/api/sessions | jq -r '.[0].pid')
+curl -s -H "Authorization: Bearer <TOKEN>" "http://localhost:<PORT>/api/poll?session=$SESSION_PID"
 ```
 
 8. When a poll response arrives (JSON with `text` field), present it to the user and loop back to step 7.
@@ -41,6 +42,9 @@ curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:<PORT>/api/poll
 
 - The mirror server and poll requests MUST use `run_in_background: true`
 - If TM_SOCKET is not set, inform the user they need to start the session with `tm <command>` first
-- The mirror will auto-discover the wrapper session via /tmp/tm-*.sock scanning
+- The mirror will auto-discover all wrapper sessions via /tmp/tm-*.sock scanning
+- New sessions started after the server are discovered automatically within 5 seconds
+- The web UI provides a session selector dropdown to switch between sessions
 - Use `--remote` to bind on `0.0.0.0` and output LAN IP URL for access from other devices on the network
 - Remote mode relaxes origin checks but still requires token authentication
+- The CLI command is `tm start-server`, but the skill name remains `mirror` for backward compatibility
