@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# tm — Universal terminal wrapper + mirror CLI
+#
+# Usage:
+#   tm <command> [args...]    Wrap a command in a PTY with mirror socket
+#   tm mirror [options]       Start mirror web server (attach to wrapper)
+#   tm list                   List active tm-wrapper sessions
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+WRAPPER_JS="$PLUGIN_DIR/scripts/tm-wrapper.js"
+MIRROR_JS="$PLUGIN_DIR/scripts/mirror-server.js"
+LIST_JS="$PLUGIN_DIR/scripts/tm-list.js"
+
+# Auto-install dependencies if needed
+ensure_deps() {
+  if [ ! -d "$PLUGIN_DIR/node_modules" ]; then
+    echo "Installing dependencies..." >&2
+    (cd "$PLUGIN_DIR" && npm install) >&2
+  fi
+}
+
+# Subcommand routing
+case "${1:-}" in
+  mirror)
+    shift
+    ensure_deps
+    exec node "$MIRROR_JS" "$@"
+    ;;
+  list)
+    shift
+    ensure_deps
+    exec node "$LIST_JS" "$@"
+    ;;
+  -h|--help|"")
+    echo "Usage:"
+    echo "  tm <command> [args...]    Wrap a command in a PTY with mirror socket"
+    echo "  tm mirror [options]       Start mirror web server (attach to wrapper)"
+    echo "  tm list                   List active tm-wrapper sessions"
+    echo ""
+    echo "Examples:"
+    echo "  tm claude --model sonnet  Wrap Claude with terminal mirror support"
+    echo "  tm bash                   Wrap bash"
+    echo "  tm vim file.txt           Wrap vim"
+    echo "  tm mirror                 Attach mirror to most recent session"
+    echo "  tm mirror -s /tmp/tm-1234.sock  Attach to specific session"
+    exit 0
+    ;;
+  *)
+    ensure_deps
+    exec node "$WRAPPER_JS" "$@"
+    ;;
+esac

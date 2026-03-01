@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Viewer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" crossorigin="anonymous">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  font-size: 13px;
+  gap: 12px;
+}
+.file-path {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  color: #7aa2f7;
+  word-break: break-all;
+  min-width: 0;
+}
+.file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.file-line {
+  color: #7dcfff;
+  white-space: nowrap;
+}
+.copy-btn {
+  background: #21262d;
+  color: #8b949e;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copy-btn:hover { background: #30363d; color: #e6edf3; }
+.error-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80vh;
+  color: #f85149;
+  font-size: 1.1em;
+}
+.loading-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80vh;
+  color: #8b949e;
+}
+.code-wrapper {
+  overflow-x: auto;
+}
+pre {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+code.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+.code-line {
+  display: block;
+  padding: 0 16px 0 0;
+  min-height: 1.5em;
+}
+.code-line:hover {
+  background: rgba(110, 118, 129, 0.1);
+}
+.code-line.target {
+  background: rgba(187, 154, 247, 0.15);
+  border-left: 3px solid #bb9af7;
+}
+.code-line.target:hover {
+  background: rgba(187, 154, 247, 0.2);
+}
+.line-num {
+  display: inline-block;
+  width: 5em;
+  padding-right: 16px;
+  text-align: right;
+  color: #484f58;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.code-line.target .line-num {
+  color: #bb9af7;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="file-path" id="filePath">Loading...</span>
+  <div class="file-meta">
+    <span class="file-line" id="fileLine"></span>
+    <button class="copy-btn" id="copyBtn" title="Copy file path">Copy path</button>
+  </div>
+</div>
+<div id="content">
+  <div class="loading-msg">Loading file...</div>
+</div>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js" crossorigin="anonymous"></script>
+<script>
+(function() {
+  var params = new URLSearchParams(location.search);
+  var filePath = params.get('path');
+  var targetLine = parseInt(params.get('line'), 10) || 0;
+  var contentEl = document.getElementById('content');
+  var filePathEl = document.getElementById('filePath');
+  var fileLineEl = document.getElementById('fileLine');
+  var copyBtn = document.getElementById('copyBtn');
+
+  if (!filePath) {
+    contentEl.innerHTML = '<div class="error-msg">No file path specified</div>';
+    return;
+  }
+
+  filePathEl.textContent = filePath;
+  if (targetLine > 0) fileLineEl.textContent = 'Line ' + targetLine;
+  document.title = filePath.split('/').pop() + (targetLine > 0 ? ':' + targetLine : '') + ' \u2014 File Viewer';
+
+  copyBtn.addEventListener('click', function() {
+    var text = filePath + (targetLine > 0 ? ':' + targetLine : '');
+    navigator.clipboard.writeText(text).then(function() {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(function() { copyBtn.textContent = 'Copy path'; }, 1500);
+    }).catch(function() {});
+  });
+
+  var ext = filePath.split('.').pop().toLowerCase();
+  var langMap = {
+    js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+    ts: 'typescript', tsx: 'typescript', mts: 'typescript',
+    py: 'python', rb: 'ruby', rs: 'rust', go: 'go',
+    java: 'java', kt: 'kotlin', swift: 'swift',
+    c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp',
+    cs: 'csharp', css: 'css', scss: 'scss', less: 'less',
+    html: 'html', htm: 'html', xml: 'xml', svg: 'xml',
+    json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'ini',
+    md: 'markdown', sh: 'bash', bash: 'bash', zsh: 'bash',
+    sql: 'sql', graphql: 'graphql',
+  };
+
+  function escapeHtml(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  fetch('/api/file?path=' + encodeURIComponent(filePath))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) {
+        contentEl.innerHTML = '<div class="error-msg">' + escapeHtml(data.error) + '</div>';
+        return;
+      }
+
+      if (data.relativePath) {
+        filePathEl.textContent = data.relativePath;
+        filePath = data.relativePath;
+      }
+
+      var highlighted;
+      var lang = langMap[ext];
+      try {
+        if (lang && hljs.getLanguage(lang)) {
+          highlighted = hljs.highlight(data.content, { language: lang }).value;
+        } else {
+          highlighted = hljs.highlightAuto(data.content).value;
+        }
+      } catch (e) {
+        highlighted = escapeHtml(data.content);
+      }
+
+      var lines = highlighted.split('\n');
+      if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+
+      var openStack = [];
+      var parts = [];
+      for (var i = 0; i < lines.length; i++) {
+        var num = i + 1;
+        var isTarget = num === targetLine;
+        var cls = isTarget ? 'code-line target' : 'code-line';
+        var id = isTarget ? ' id="target"' : '';
+        var lineContent = lines[i];
+
+        var prefix = openStack.join('');
+
+        var tagRe = /<span[^>]*>|<\/span>/g;
+        var tag;
+        while ((tag = tagRe.exec(lineContent)) !== null) {
+          if (tag[0] === '</span>') { openStack.pop(); }
+          else { openStack.push(tag[0]); }
+        }
+
+        var suffix = '';
+        for (var j = 0; j < openStack.length; j++) suffix += '</span>';
+
+        parts.push('<span class="' + cls + '"' + id + '><span class="line-num">' + num + '</span>' + prefix + (lineContent || ' ') + suffix + '</span>');
+      }
+
+      contentEl.innerHTML = '<div class="code-wrapper"><pre><code class="hljs">' + parts.join('') + '</code></pre></div>';
+
+      if (targetLine > 0) {
+        var targetEl = document.getElementById('target');
+        if (targetEl) {
+          setTimeout(function() {
+            targetEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }, 100);
+        }
+      }
+    })
+    .catch(function(err) {
+      contentEl.innerHTML = '<div class="error-msg">Failed to load file: ' + escapeHtml(err.message) + '</div>';
+    });
+})();
+</script>
+</body>
+</html>

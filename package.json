@@ -1,0 +1,16 @@
+{
+  "name": "terminal-mirror",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Universal PTY wrapper + detachable web terminal mirror",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "tm": "./bin/tm"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}

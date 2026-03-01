@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terminal Mirror</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" integrity="sha384-tStR1zLfWgsiXCF3IgfB3lBa8KmBe/lG287CL9WCeKgQYcp1bjb4/+mwN6oti4Co" crossorigin="anonymous">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="header">
+  <div style="display:flex;align-items:center;">
+    <div class="header-title">Terminal Mirror</div>
+    <span class="ws-status" id="wsStatus" title="WebSocket"></span>
+    <span class="ws-status wrapper-status" id="wrapperStatus" title="Wrapper"></span>
+  </div>
+  <div class="header-actions">
+    <div class="settings-wrapper">
+      <button class="btn btn-settings" id="settingsBtn" title="Terminal Settings">&#9881;</button>
+      <div class="settings-panel" id="settingsPanel">
+        <div class="settings-group">
+          <div class="settings-label">Font Size <span class="settings-value" id="fontSizeValue">13</span></div>
+          <input class="settings-range" type="range" id="fontSizeRange" min="10" max="24" step="1" value="13">
+        </div>
+        <div class="settings-group">
+          <div class="settings-label">Line Height <span class="settings-value" id="lineHeightValue">1.4</span></div>
+          <input class="settings-range" type="range" id="lineHeightRange" min="1.0" max="2.0" step="0.1" value="1.4">
+        </div>
+        <div class="settings-group">
+          <div class="settings-label">Scrollback</div>
+          <input class="settings-input" type="number" id="scrollbackInput" min="1000" max="100000" step="1000" value="50000">
+        </div>
+        <div class="settings-actions">
+          <button class="popup-btn cancel" id="settingsReset">Reset to Defaults</button>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-close" id="doneBtn">Close</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="terminal-panel" id="terminalPanel">
+    <div id="xtermContainer"></div>
+    <div class="loading" id="loadingState">Connecting...</div>
+    <button class="scroll-bottom-btn" id="scrollBottomBtn">&darr;</button>
+  </div>
+  <div class="keyboard-hint">
+    Click <kbd>+</kbd> to select line &middot; Drag for range &middot; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save
+  </div>
+  <div class="message-bar" id="messageBar">
+    <span class="comment-badge" id="commentBadge"></span>
+    <textarea id="messageInput" placeholder="Type a message..." rows="1"></textarea>
+    <div class="message-bar-actions">
+      <span class="message-bar-hint"><kbd>Enter</kbd> submit &middot; <kbd>Shift</kbd>+<kbd>Enter</kbd> newline</span>
+      <button class="btn-send btn-send-submit" id="sendSubmitBtn">Submit</button>
+    </div>
+  </div>
+</div>
+
+<button class="float-btn" id="floatBtn">+ Comment</button>
+
+<div class="comment-popup" id="commentPopup">
+  <div class="comment-popup-header">Add Comment</div>
+  <div class="comment-popup-selected" id="popupSelected"></div>
+  <textarea id="popupTextarea" placeholder="Write your comment..."></textarea>
+  <div class="comment-popup-actions">
+    <button class="popup-btn cancel" id="popupCancel">Cancel</button>
+    <button class="popup-btn save" id="popupSave">Save</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js" integrity="sha384-J4qzUjBl1FxyLsl/kQPQIOeINsmp17OHYXDOMpMxlKX53ZfYsL+aWHpgArvOuof9" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js" integrity="sha384-XGqKrV8Jrukp1NITJbOEHwg01tNkuXr6uB6YEj69ebpYU3v7FvoGgEg23C1Gcehk" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+</body>
+</html>

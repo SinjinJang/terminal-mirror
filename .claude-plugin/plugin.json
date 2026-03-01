@@ -1,0 +1,8 @@
+{
+  "name": "terminal-mirror",
+  "version": "0.1.0",
+  "description": "범용 PTY wrapper + 탈착식 웹 터미널 미러. 임의의 프로그램을 래핑하고 브라우저에서 미러링/코멘트 작성",
+  "author": { "name": "sjjang" },
+  "keywords": ["terminal", "mirror", "wrapper", "pty", "web", "review", "comment"],
+  "commands": "./commands"
+}
