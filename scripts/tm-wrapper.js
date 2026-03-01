@@ -7,6 +7,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 // ── Constants ──
 const RING_BUFFER_SIZE = 1 * 1024 * 1024; // 1 MB scrollback ring buffer
@@ -92,6 +93,8 @@ let socketServer = null;
 let socketPath = null;
 const socketClients = new Set();
 const startedAt = new Date().toISOString();
+const authToken = crypto.randomBytes(32).toString('hex');
+const tokenPath = path.join(os.tmpdir(), `tm-${process.pid}.token`);
 
 // ── PTY environment ──
 const ptyEnv = { ...process.env, TERM: 'xterm-256color' };
@@ -184,6 +187,7 @@ function startSocketServer() {
       pid: process.pid,
       cmd: [command, ...commandArgs].join(' '),
       startedAt,
+      token: authToken,
     });
 
     // Send scrollback history
@@ -219,6 +223,11 @@ function startSocketServer() {
     // Set environment variable for child discovery
     process.env.TM_SOCKET = socketPath;
     ptyEnv.TM_SOCKET = socketPath;
+
+    // Write auth token file (readable only by owner)
+    fs.writeFileSync(tokenPath, authToken, { mode: 0o600 });
+    process.env.TM_TOKEN = authToken;
+    ptyEnv.TM_TOKEN = authToken;
 
     process.stderr.write(`TM_SOCKET=${socketPath}\n`);
   });
@@ -263,6 +272,9 @@ function cleanup(exitCode = 0) {
   if (socketPath) {
     try { fs.unlinkSync(socketPath); } catch { /* already removed */ }
   }
+
+  // Remove token file
+  try { fs.unlinkSync(tokenPath); } catch { /* already removed */ }
 
   // Restore terminal
   if (process.stdin.isTTY) {

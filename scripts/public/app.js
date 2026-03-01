@@ -1,4 +1,14 @@
 (function() {
+  // ── Auth token from URL ──
+  const urlParams = new URLSearchParams(window.location.search);
+  const authToken = urlParams.get('token') || '';
+
+  function authFetch(url, opts = {}) {
+    const h = { ...(opts.headers || {}) };
+    if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+    return fetch(url, { ...opts, headers: h });
+  }
+
   // ── Constants ──
   const MAX_SELECTED_TEXT = 500;
   const MAX_SELECTED_TEXT_DISPLAY = 80;
@@ -534,6 +544,7 @@
     function openFileLink(fp, ln) {
       var params = new URLSearchParams({ path: fp });
       if (ln > 0) params.set('line', String(ln));
+      if (authToken) params.set('token', authToken);
       window.open('/viewer.html?' + params.toString(), '_blank');
     }
 
@@ -720,7 +731,7 @@
       }, 300);
     }
 
-    fetch('/api/submit', {
+    authFetch('/api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ comments: hasComments ? comments : [], message: message || undefined, batchId }),
@@ -742,7 +753,7 @@
   }
 
   async function done() {
-    try { await fetch('/api/done', { method: 'POST' }); } catch {}
+    try { await authFetch('/api/done', { method: 'POST' }); } catch {}
     window.close();
   }
 
@@ -892,7 +903,8 @@
 
   function connectTerminalWs() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal`);
+    const wsTokenQuery = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+    terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal${wsTokenQuery}`);
     terminalWs.binaryType = 'arraybuffer';
 
     terminalWs.onopen = () => {
@@ -940,7 +952,8 @@
 
   function connectCommentWs() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    commentWs = new WebSocket(`${proto}//${location.host}/ws/comments`);
+    const wsTokenQuery = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+    commentWs = new WebSocket(`${proto}//${location.host}/ws/comments${wsTokenQuery}`);
 
     commentWs.onopen = () => {
       commentReconnects = 0;

@@ -24,13 +24,13 @@ fi
 node "${CLAUDE_PLUGIN_ROOT}/scripts/mirror-server.js" --no-open
 ```
 
-4. Wait 2 seconds, then read the TaskOutput to get the PORT number from stderr output.
+4. Wait 2 seconds, then read the TaskOutput to get the PORT and TOKEN from stderr output. Parse `PORT=<number>` and `TOKEN=<hex>` lines.
 
-5. Report the URL to the user: `http://localhost:<PORT>`
+5. Report the URL to the user: `http://localhost:<PORT>?token=<TOKEN>`
 
 6. Start a long-poll loop in the background with `run_in_background: true`:
 ```bash
-curl -s http://localhost:<PORT>/api/poll
+curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:<PORT>/api/poll
 ```
 
 7. When a poll response arrives (JSON with `text` field), present it to the user and loop back to step 6.

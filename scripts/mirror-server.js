@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn: spawnChild } = require('child_process');
 const os = require('os');
+const crypto = require('crypto');
 
 // ── Constants ──
 const START_PORT = 3456;
@@ -57,6 +58,7 @@ let wrapperConnected = false;
 let wrapperInfo = { cwd: process.cwd(), cols: 80, rows: 24, pid: null, cmd: '' };
 let serverPort = null;
 let socketReconnects = 0;
+let authToken = null;
 const terminalClients = new Set();
 const commentClients = new Set();
 const messageQueue = [];
@@ -140,6 +142,15 @@ function findSocketPath() {
 // ── Connect to wrapper Unix socket ──
 function connectToWrapper() {
   const sockPath = findSocketPath();
+
+  // Try to read auth token from .token file (parallel to .sock file)
+  if (!authToken && sockPath) {
+    const tokenFilePath = sockPath.replace(/\.sock$/, '.token');
+    try {
+      authToken = fs.readFileSync(tokenFilePath, 'utf-8').trim();
+    } catch { /* token file may not exist yet */ }
+  }
+
   if (!sockPath) {
     process.stderr.write('No active tm-wrapper session found.\n');
     process.stderr.write('Start one with: tm <command>\n');
@@ -219,6 +230,10 @@ function handleWrapperMessage(msg) {
         cmd: msg.cmd || '',
         startedAt: msg.startedAt || null,
       };
+      // Capture auth token from wrapper hello message
+      if (msg.token && !authToken) {
+        authToken = msg.token;
+      }
       // Send resize to browser clients
       broadcastTerminalJSON({ type: 'resize', cols: wrapperInfo.cols, rows: wrapperInfo.rows });
       break;
@@ -290,15 +305,46 @@ function readBody(req) {
   });
 }
 
+// ── Auth helpers ──
+function isValidToken(candidate) {
+  if (!authToken) return true; // backward compat: no token = open access
+  if (!candidate || candidate.length !== authToken.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(authToken));
+}
+
+function extractToken(req) {
+  // 1. Authorization: Bearer <token>
+  const authHeader = req.headers['authorization'] || '';
+  if (authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  // 2. ?token= query parameter
+  const url = new URL(req.url, 'http://localhost');
+  return url.searchParams.get('token') || '';
+}
+
+function rejectUnauthorized(res) {
+  res.writeHead(401, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Unauthorized' }));
+}
+
 const httpServer = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
 
   const allowedOrigin = `http://localhost:${serverPort}`;
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  // Token validation gate for /api/ routes
+  if (pathname.startsWith('/api/')) {
+    if (!isValidToken(extractToken(req))) {
+      rejectUnauthorized(res);
+      return;
+    }
+  }
 
   // Status endpoint
   if (req.method === 'GET' && pathname === '/api/status') {
@@ -462,7 +508,16 @@ httpServer.on('upgrade', (request, socket, head) => {
     return;
   }
 
-  const pathname = new URL(request.url, 'http://localhost').pathname;
+  // Token validation for WebSocket upgrade
+  const upgradeUrl = new URL(request.url, 'http://localhost');
+  const wsToken = upgradeUrl.searchParams.get('token') || '';
+  if (!isValidToken(wsToken)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  const pathname = upgradeUrl.pathname;
 
   if (pathname === '/ws/terminal') {
     wss.handleUpgrade(request, socket, head, (ws) => {
@@ -581,9 +636,34 @@ process.on('SIGTERM', () => { cleanup(); });
 
 // ── Start ──
 async function start() {
+  // Try to read auth token from environment or token file before starting
+  if (!authToken && process.env.TM_TOKEN) {
+    authToken = process.env.TM_TOKEN;
+  }
+  if (!authToken) {
+    // Scan for token files matching tm-*.token
+    const tmpDir = os.tmpdir();
+    try {
+      for (const entry of fs.readdirSync(tmpDir)) {
+        if (entry.startsWith('tm-') && entry.endsWith('.token')) {
+          const pidStr = entry.slice(3, -6);
+          const pid = parseInt(pidStr, 10);
+          if (isNaN(pid)) continue;
+          try {
+            process.kill(pid, 0);
+            authToken = fs.readFileSync(path.join(tmpDir, entry), 'utf-8').trim();
+            break;
+          } catch { /* process dead or file unreadable */ }
+        }
+      }
+    } catch { /* tmpdir read error */ }
+  }
+
   serverPort = await listenOnAvailablePort(httpServer, START_PORT);
-  const url = `http://localhost:${serverPort}`;
+  const tokenQuery = authToken ? `?token=${authToken}` : '';
+  const url = `http://localhost:${serverPort}${tokenQuery}`;
   process.stderr.write(`PORT=${serverPort}\n`);
+  if (authToken) process.stderr.write(`TOKEN=${authToken}\n`);
   process.stderr.write(`Terminal Mirror: ${url}\n`);
 
   // Connect to wrapper
