@@ -1005,9 +1005,9 @@
   }
 
   document.getElementById('refreshSessionsBtn').addEventListener('click', async function () {
-    this.classList.add('spinning');
-    await refreshSessions();
     const btn = this;
+    btn.classList.add('spinning');
+    await refreshSessions();
     setTimeout(() => btn.classList.remove('spinning'), 600);
   });
 

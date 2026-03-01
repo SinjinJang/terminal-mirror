@@ -73,17 +73,28 @@ function createSession(pid, sockPath) {
     commentClients: new Set(),
     messageQueue: [],
     pollWaiters: [],
-    replayBuffer: Buffer.alloc(0), // recent output for new clients
+    replayChunks: [], // recent output chunks for new clients
+    replaySize: 0,
   };
 }
 
-const REPLAY_BUFFER_MAX = 64 * 1024; // 64 KB — roughly one page of terminal output
+const REPLAY_BUFFER_MAX = 64 * 1024; // 64 KB
 
 function appendReplayBuffer(session, buf) {
-  session.replayBuffer = Buffer.concat([session.replayBuffer, buf]);
-  if (session.replayBuffer.length > REPLAY_BUFFER_MAX) {
-    session.replayBuffer = session.replayBuffer.subarray(session.replayBuffer.length - REPLAY_BUFFER_MAX);
+  session.replayChunks.push(buf);
+  session.replaySize += buf.length;
+  while (session.replaySize > REPLAY_BUFFER_MAX && session.replayChunks.length > 1) {
+    session.replaySize -= session.replayChunks.shift().length;
   }
+}
+
+function getReplayBuffer(session) {
+  if (session.replayChunks.length === 0) return null;
+  if (session.replayChunks.length === 1) return session.replayChunks[0];
+  const combined = Buffer.concat(session.replayChunks);
+  session.replayChunks = [combined];
+  session.replaySize = combined.length;
+  return combined;
 }
 
 function resolveNextPoll(session) {
@@ -267,13 +278,7 @@ function handleWrapperMessage(session, msg) {
       broadcastTerminalJSON(session, { type: 'resize', cols: session.wrapperInfo.cols, rows: session.wrapperInfo.rows });
       break;
 
-    case 'scrollback': {
-      const buf = Buffer.from(msg.data, 'base64');
-      appendReplayBuffer(session, buf);
-      broadcastTerminalBinary(session, buf);
-      break;
-    }
-
+    case 'scrollback':
     case 'output': {
       const buf = Buffer.from(msg.data, 'base64');
       appendReplayBuffer(session, buf);
@@ -632,9 +637,8 @@ httpServer.on('upgrade', (request, socket, head) => {
       }));
 
       // Replay recent output so the client sees terminal content immediately
-      if (session.replayBuffer.length > 0) {
-        ws.send(session.replayBuffer);
-      }
+      const replay = getReplayBuffer(session);
+      if (replay) ws.send(replay);
 
       ws.on('message', (msg) => {
         try {
