@@ -73,7 +73,17 @@ function createSession(pid, sockPath) {
     commentClients: new Set(),
     messageQueue: [],
     pollWaiters: [],
+    replayBuffer: Buffer.alloc(0), // recent output for new clients
   };
+}
+
+const REPLAY_BUFFER_MAX = 64 * 1024; // 64 KB — roughly one page of terminal output
+
+function appendReplayBuffer(session, buf) {
+  session.replayBuffer = Buffer.concat([session.replayBuffer, buf]);
+  if (session.replayBuffer.length > REPLAY_BUFFER_MAX) {
+    session.replayBuffer = session.replayBuffer.subarray(session.replayBuffer.length - REPLAY_BUFFER_MAX);
+  }
 }
 
 function resolveNextPoll(session) {
@@ -259,12 +269,14 @@ function handleWrapperMessage(session, msg) {
 
     case 'scrollback': {
       const buf = Buffer.from(msg.data, 'base64');
+      appendReplayBuffer(session, buf);
       broadcastTerminalBinary(session, buf);
       break;
     }
 
     case 'output': {
       const buf = Buffer.from(msg.data, 'base64');
+      appendReplayBuffer(session, buf);
       broadcastTerminalBinary(session, buf);
       break;
     }
@@ -618,6 +630,11 @@ httpServer.on('upgrade', (request, socket, head) => {
         type: 'wrapper_status',
         connected: session.connected,
       }));
+
+      // Replay recent output so the client sees terminal content immediately
+      if (session.replayBuffer.length > 0) {
+        ws.send(session.replayBuffer);
+      }
 
       ws.on('message', (msg) => {
         try {
