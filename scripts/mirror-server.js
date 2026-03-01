@@ -150,10 +150,18 @@ function discoverAndConnect() {
     }
   }
 
-  // Mark disconnected sessions whose sockets are gone
+  // Remove disconnected sessions whose wrappers are gone
   for (const [pid, session] of sessions) {
-    if (!found.has(pid) && session.connected) {
-      // Wrapper is gone, socket will close on its own
+    if (!found.has(pid) && !session.connected) {
+      for (const ws of session.terminalClients) ws.close();
+      for (const ws of session.commentClients) ws.close();
+      for (const { res, timer } of session.pollWaiters) {
+        clearTimeout(timer);
+        res.writeHead(410, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Session removed' }));
+      }
+      sessions.delete(pid);
+      process.stderr.write(`Removed stale session PID ${pid}.\n`);
     }
   }
 }
