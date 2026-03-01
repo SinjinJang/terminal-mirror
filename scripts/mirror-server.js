@@ -33,12 +33,15 @@ const MIME_TYPES = {
 const rawArgs = process.argv.slice(2);
 let explicitSocket = null;
 let noOpen = false;
+let remoteMode = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
   if ((rawArgs[i] === '-s' || rawArgs[i] === '--socket') && rawArgs[i + 1]) {
     explicitSocket = rawArgs[++i];
   } else if (rawArgs[i] === '--no-open') {
     noOpen = true;
+  } else if (rawArgs[i] === '--remote') {
+    remoteMode = true;
   }
 }
 
@@ -331,7 +334,10 @@ function rejectUnauthorized(res) {
 const httpServer = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
 
-  const allowedOrigin = `http://localhost:${serverPort}`;
+  const requestOrigin = req.headers.origin || '';
+  const allowedOrigin = remoteMode
+    ? (requestOrigin || '*')
+    : `http://localhost:${serverPort}`;
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -502,7 +508,7 @@ const wss = new WebSocket.WebSocketServer({ noServer: true });
 
 httpServer.on('upgrade', (request, socket, head) => {
   const origin = request.headers.origin || '';
-  if (origin && origin !== `http://localhost:${serverPort}`) {
+  if (!remoteMode && origin && origin !== `http://localhost:${serverPort}`) {
     socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
     socket.destroy();
     return;
@@ -561,26 +567,38 @@ httpServer.on('upgrade', (request, socket, head) => {
 });
 
 // ── Port detection + start ──
-function tryListen(server, port) {
+function tryListen(server, port, host) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       server.removeListener('error', reject);
       resolve();
     });
   });
 }
 
-async function listenOnAvailablePort(server, startPort, maxAttempts = MAX_PORT_SCAN) {
+async function listenOnAvailablePort(server, startPort, maxAttempts = MAX_PORT_SCAN, host = '127.0.0.1') {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      await tryListen(server, startPort + i);
+      await tryListen(server, startPort + i, host);
       return startPort + i;
     } catch (e) {
       if (e.code !== 'EADDRINUSE') throw e;
     }
   }
   throw new Error('No available port found');
+}
+
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
 }
 
 function openBrowser(url) {
@@ -636,32 +654,25 @@ process.on('SIGTERM', () => { cleanup(); });
 
 // ── Start ──
 async function start() {
-  // Try to read auth token from environment or token file before starting
+  // Token discovery: env → socket-matched token file
   if (!authToken && process.env.TM_TOKEN) {
     authToken = process.env.TM_TOKEN;
   }
   if (!authToken) {
-    // Scan for token files matching tm-*.token
-    const tmpDir = os.tmpdir();
-    try {
-      for (const entry of fs.readdirSync(tmpDir)) {
-        if (entry.startsWith('tm-') && entry.endsWith('.token')) {
-          const pidStr = entry.slice(3, -6);
-          const pid = parseInt(pidStr, 10);
-          if (isNaN(pid)) continue;
-          try {
-            process.kill(pid, 0);
-            authToken = fs.readFileSync(path.join(tmpDir, entry), 'utf-8').trim();
-            break;
-          } catch { /* process dead or file unreadable */ }
-        }
-      }
-    } catch { /* tmpdir read error */ }
+    const sockPath = findSocketPath();
+    if (sockPath) {
+      const tokenFilePath = sockPath.replace(/\.sock$/, '.token');
+      try {
+        authToken = fs.readFileSync(tokenFilePath, 'utf-8').trim();
+      } catch { /* not available yet, will get from hello */ }
+    }
   }
 
-  serverPort = await listenOnAvailablePort(httpServer, START_PORT);
+  const bindAddr = remoteMode ? '0.0.0.0' : '127.0.0.1';
+  serverPort = await listenOnAvailablePort(httpServer, START_PORT, MAX_PORT_SCAN, bindAddr);
   const tokenQuery = authToken ? `?token=${authToken}` : '';
-  const url = `http://localhost:${serverPort}${tokenQuery}`;
+  const host = remoteMode ? getLocalIP() : 'localhost';
+  const url = `http://${host}:${serverPort}${tokenQuery}`;
   process.stderr.write(`PORT=${serverPort}\n`);
   if (authToken) process.stderr.write(`TOKEN=${authToken}\n`);
   process.stderr.write(`Terminal Mirror: ${url}\n`);

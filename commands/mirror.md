@@ -19,24 +19,28 @@ if [ ! -d "$PLUGIN_ROOT/node_modules" ]; then
 fi
 ```
 
-3. Start the mirror server in the background. IMPORTANT: You MUST use `run_in_background: true`.
+3. Check if the user requested remote access (e.g., "remote mirror", "LAN access", "--remote"). If so, add `--remote` flag.
+
+4. Start the mirror server in the background. IMPORTANT: You MUST use `run_in_background: true`.
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/mirror-server.js" --no-open
+node "${CLAUDE_PLUGIN_ROOT}/scripts/mirror-server.js" --no-open [--remote]
 ```
 
-4. Wait 2 seconds, then read the TaskOutput to get the PORT and TOKEN from stderr output. Parse `PORT=<number>` and `TOKEN=<hex>` lines.
+5. Wait 2 seconds, then read the TaskOutput to get the PORT and TOKEN from stderr output. Parse `PORT=<number>` and `TOKEN=<hex>` lines.
 
-5. Report the URL to the user: `http://localhost:<PORT>?token=<TOKEN>`
+6. Report the URL to the user: `http://localhost:<PORT>?token=<TOKEN>` (or `http://<LAN_IP>:<PORT>?token=<TOKEN>` in remote mode)
 
-6. Start a long-poll loop in the background with `run_in_background: true`:
+7. Start a long-poll loop in the background with `run_in_background: true`:
 ```bash
 curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:<PORT>/api/poll
 ```
 
-7. When a poll response arrives (JSON with `text` field), present it to the user and loop back to step 6.
+8. When a poll response arrives (JSON with `text` field), present it to the user and loop back to step 7.
 
 ## Important Notes
 
 - The mirror server and poll requests MUST use `run_in_background: true`
 - If TM_SOCKET is not set, inform the user they need to start the session with `tm <command>` first
 - The mirror will auto-discover the wrapper session via /tmp/tm-*.sock scanning
+- Use `--remote` to bind on `0.0.0.0` and output LAN IP URL for access from other devices on the network
+- Remote mode relaxes origin checks but still requires token authentication
