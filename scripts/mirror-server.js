@@ -8,6 +8,7 @@ const http = require('http');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
+const qrTerminal = require('qrcode-terminal');
 const { spawn: spawnChild } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
@@ -764,6 +765,9 @@ async function start() {
   process.stderr.write(`PORT=${serverPort}\n`);
   process.stderr.write(`TOKEN=${masterToken}\n`);
   process.stderr.write(`Terminal Mirror: ${url}\n`);
+  qrTerminal.generate(url, { small: true }, (qr) => {
+    process.stderr.write(qr + '\n');
+  });
 
   // Initial scan + connect to all active wrappers
   discoverAndConnect();
