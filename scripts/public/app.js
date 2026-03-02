@@ -190,7 +190,15 @@
     });
 
     // Keyboard input → WebSocket → PTY
+    // Deduplicate rapid-fire IME events (mobile virtual keyboards can fire
+    // both composition and input events for the same keystroke)
+    let lastInputData = '';
+    let lastInputTs = 0;
     xterm.onData((data) => {
+      const now = performance.now();
+      if (data === lastInputData && now - lastInputTs < 15) return;
+      lastInputData = data;
+      lastInputTs = now;
       if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
         terminalWs.send(JSON.stringify({ type: 'input', data }));
       }
