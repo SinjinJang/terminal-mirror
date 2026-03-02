@@ -16,8 +16,10 @@
   const DISCONNECT_CLOSE_MS = 10000;
   const COMMENT_COLORS = ['#ff9e64', '#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff'];
   const SETTINGS_KEY = 'terminal-mirror-settings';
-  const DEFAULT_SETTINGS = { fontSize: 13, lineHeight: 1.4, scrollback: 50000 };
   const SESSION_REFRESH_MS = 5000;
+  const MOBILE_BREAKPOINT = 768;
+  let isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+  const DEFAULT_SETTINGS = { fontSize: isMobile ? 14 : 13, lineHeight: 1.4, scrollback: 50000 };
 
   // ── State ──
   let comments = [];       // pending (not yet submitted)
@@ -105,11 +107,11 @@
   let gutterDragging = false;
   let gutterAnchorRow = null;
 
-  // Fit terminal to container but constrain cols to server PTY width
+  // Fit terminal to container but constrain cols to server PTY width (desktop only)
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
     fitAddon.fit();
-    if (serverCols !== null && xterm.cols !== serverCols) {
+    if (!isMobile && serverCols !== null && xterm.cols !== serverCols) {
       xterm.resize(serverCols, xterm.rows);
     }
   }
@@ -139,6 +141,7 @@
     fitTerminal();
 
     window.addEventListener('resize', () => {
+      isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
       fitTerminal();
       renderCommentOverlays();
     });
@@ -632,8 +635,13 @@
     const screen = xtermContainer.querySelector('.xterm-screen');
     const r = screen ? screen.getBoundingClientRect() : terminalPanel.getBoundingClientRect();
     commentPopup.style.display = 'block';
-    commentPopup.style.left = `${Math.max(10, r.left + (r.width - 320) / 2)}px`;
-    commentPopup.style.top = `${Math.max(10, r.top + (r.height - 220) / 2)}px`;
+    if (isMobile) {
+      commentPopup.style.left = '12px';
+      commentPopup.style.top = `${Math.max(10, r.top + 20)}px`;
+    } else {
+      commentPopup.style.left = `${Math.max(10, r.left + (r.width - 320) / 2)}px`;
+      commentPopup.style.top = `${Math.max(10, r.top + (r.height - 220) / 2)}px`;
+    }
   }
 
   function showCommentPopup() {
@@ -1070,7 +1078,9 @@
           if (msg.type === 'shutdown') { handleShutdown(); return; }
           if (msg.type === 'resize' && xterm) {
             serverCols = msg.cols;
-            xterm.resize(msg.cols, msg.rows);
+            if (!isMobile) {
+              xterm.resize(msg.cols, msg.rows);
+            }
           }
           if (msg.type === 'wrapper_status') {
             updateWrapperStatus(msg.connected);

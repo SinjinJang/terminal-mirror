@@ -650,3 +650,60 @@ kbd {
 #xtermContainer .xterm {
   height: 100%;
 }
+
+/* ── Mobile responsive ── */
+@media (max-width: 768px) {
+  #xtermContainer {
+    padding-left: 0;
+  }
+  .line-gutter,
+  .gutter-markers,
+  .line-select-hint {
+    display: none;
+  }
+  .header {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .header-title {
+    font-size: 13px;
+  }
+  .session-select {
+    max-width: 160px;
+    font-size: 11px;
+  }
+  .keyboard-hint {
+    display: none;
+  }
+  .message-bar {
+    padding: 6px 8px;
+  }
+  .message-bar textarea {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+  .message-bar-hint {
+    display: none;
+  }
+  .comment-popup {
+    width: calc(100vw - 24px);
+    max-width: 320px;
+    left: 12px !important;
+  }
+  .settings-panel {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    border-radius: 12px 12px 0 0;
+  }
+  .float-btn {
+    bottom: 60px;
+    right: 12px;
+    left: auto !important;
+    top: auto !important;
+    position: fixed;
+  }
+}
