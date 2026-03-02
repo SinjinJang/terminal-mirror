@@ -769,6 +769,7 @@
   }
 
   async function done() {
+    if (!confirm('세션을 종료하시겠습니까?')) return;
     try { await authFetch('/api/done', { method: 'POST' }); } catch {}
     window.close();
   }
