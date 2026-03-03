@@ -405,6 +405,7 @@
     }
 
     renderGutterMarkers = function() {
+      if (isMobile) return;
       gutterMarkersEl.textContent = '';
       const layout = getCommentLayoutData();
       if (!layout) return;
@@ -492,6 +493,7 @@
     }
 
     renderInlineComments = function() {
+      if (isMobile) return;
       inlineCommentsEl.textContent = '';
       const layout = getCommentLayoutData();
       if (!layout) return;
@@ -540,16 +542,21 @@
 
     xtermContainer.addEventListener('wheel', () => {
       requestAnimationFrame(() => {
-        renderCommentOverlays();
+        if (!isMobile) renderCommentOverlays();
         updateScrollBottomBtn();
       });
     });
 
-    xterm.onScroll(() => { renderCommentOverlays(); updateScrollBottomBtn(); });
+    xterm.onScroll(() => {
+      if (!isMobile) renderCommentOverlays();
+      updateScrollBottomBtn();
+    });
     let gutterDebounce = null;
     xterm.onWriteParsed(() => {
-      clearTimeout(gutterDebounce);
-      gutterDebounce = setTimeout(renderCommentOverlays, 100);
+      if (!isMobile) {
+        clearTimeout(gutterDebounce);
+        gutterDebounce = setTimeout(renderCommentOverlays, 100);
+      }
       updateScrollBottomBtn();
     });
 
