@@ -1,46 +1,26 @@
 #!/usr/bin/env node
 
-// tm-list.js — List active tm-wrapper sessions by scanning /tmp/tm-*.sock
+// tm-list.js — List active tm-wrapper sessions
 
 const net = require('net');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const { discoverSessions } = require('./platform');
 
-const tmpDir = os.tmpdir();
-const entries = [];
-const stale = [];
+const found = discoverSessions(); // Map<pid, ipcPath>, stale already cleaned
 
-// Scan for socket files
-let files;
-try {
-  files = fs.readdirSync(tmpDir).filter(f => f.startsWith('tm-') && f.endsWith('.sock'));
-} catch {
-  console.error('Cannot read tmp directory');
-  process.exit(1);
-}
-
-if (files.length === 0) {
+if (found.size === 0) {
   console.log('No active tm-wrapper sessions.');
   process.exit(0);
 }
 
-// Probe each socket to get session info
-let pending = files.length;
+// Probe each session to get info via hello message
+const entries = [];
+let pending = found.size;
 
 function done() {
   if (--pending > 0) return;
 
-  // Clean stale sockets
-  for (const s of stale) {
-    try { fs.unlinkSync(s); } catch { /* already removed */ }
-  }
-
   if (entries.length === 0) {
     console.log('No active tm-wrapper sessions.');
-    if (stale.length > 0) {
-      console.log(`Cleaned ${stale.length} stale socket(s).`);
-    }
     return;
   }
 
@@ -65,34 +45,10 @@ function done() {
     const started = e.startedAt ? new Date(e.startedAt).toLocaleString() : 'unknown';
     console.log(pid + cmd + cwd + started);
   }
-
-  if (stale.length > 0) {
-    console.log(`\nCleaned ${stale.length} stale socket(s).`);
-  }
 }
 
-for (const file of files) {
-  const sockPath = path.join(tmpDir, file);
-  const pidStr = file.slice(3, -5);
-  const pid = parseInt(pidStr, 10);
-
-  // Check if process is alive
-  if (isNaN(pid)) {
-    stale.push(sockPath);
-    done();
-    continue;
-  }
-
-  try {
-    process.kill(pid, 0);
-  } catch {
-    stale.push(sockPath);
-    done();
-    continue;
-  }
-
-  // Connect to get session info
-  const client = net.createConnection(sockPath);
+for (const [pid, ipcPath] of found) {
+  const client = net.createConnection(ipcPath);
   let lineBuf = '';
   let resolved = false;
   const timeout = setTimeout(() => {
@@ -135,7 +91,6 @@ for (const file of files) {
     if (!resolved) {
       resolved = true;
       clearTimeout(timeout);
-      stale.push(sockPath);
       done();
     }
   });

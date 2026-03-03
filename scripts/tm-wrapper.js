@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { IS_WIN, getIpcPath, getTokenPath, cleanupSessionFiles, writeMarkerFile } = require('./platform');
 
 // ── Constants ──
 const RING_BUFFER_SIZE = 1 * 1024 * 1024; // 1 MB scrollback ring buffer
@@ -94,7 +95,7 @@ let socketPath = null;
 const socketClients = new Set();
 const startedAt = new Date().toISOString();
 const authToken = crypto.randomBytes(32).toString('hex');
-const tokenPath = path.join(os.tmpdir(), `tm-${process.pid}.token`);
+const tokenPath = getTokenPath(process.pid);
 
 // ── PTY environment ──
 const ptyEnv = { ...process.env, TERM: 'xterm-256color' };
@@ -170,10 +171,12 @@ process.stdout.on('resize', () => {
 
 // ── Unix domain socket server ──
 function startSocketServer() {
-  socketPath = path.join(os.tmpdir(), `tm-${process.pid}.sock`);
+  socketPath = getIpcPath(process.pid);
 
-  // Clean stale socket if exists
-  try { fs.unlinkSync(socketPath); } catch { /* doesn't exist */ }
+  // Clean stale socket if exists (Unix only; named pipes are not files)
+  if (!IS_WIN) {
+    try { fs.unlinkSync(socketPath); } catch { /* doesn't exist */ }
+  }
 
   socketServer = net.createServer((client) => {
     socketClients.add(client);
@@ -224,8 +227,11 @@ function startSocketServer() {
     process.env.TM_SOCKET = socketPath;
     ptyEnv.TM_SOCKET = socketPath;
 
+    // Write marker file for session discovery (Windows only; Unix uses socket file)
+    writeMarkerFile(process.pid);
+
     // Write auth token file (readable only by owner)
-    fs.writeFileSync(tokenPath, authToken, { mode: 0o600 });
+    fs.writeFileSync(tokenPath, authToken, IS_WIN ? {} : { mode: 0o600 });
     process.env.TM_TOKEN = authToken;
     ptyEnv.TM_TOKEN = authToken;
 
@@ -268,13 +274,8 @@ function cleanup(exitCode = 0) {
     try { socketServer.close(); } catch { /* already closed */ }
   }
 
-  // Remove socket file
-  if (socketPath) {
-    try { fs.unlinkSync(socketPath); } catch { /* already removed */ }
-  }
-
-  // Remove token file
-  try { fs.unlinkSync(tokenPath); } catch { /* already removed */ }
+  // Remove session files (socket/marker + token)
+  cleanupSessionFiles(process.pid);
 
   // Restore terminal
   if (process.stdin.isTTY) {
@@ -285,18 +286,23 @@ function cleanup(exitCode = 0) {
   setTimeout(() => process.exit(exitCode), CLEANUP_EXIT_DELAY_MS);
 }
 
-process.on('SIGINT', () => {
-  if (ptyProcess) {
-    ptyProcess.kill('SIGINT');
-    setTimeout(() => {
-      if (!cleaningUp) cleanup(130);
-    }, SIGINT_FORCE_CLEANUP_MS);
-  } else {
-    cleanup(130);
-  }
-});
+if (!IS_WIN) {
+  process.on('SIGINT', () => {
+    if (ptyProcess) {
+      ptyProcess.kill('SIGINT');
+      setTimeout(() => {
+        if (!cleaningUp) cleanup(130);
+      }, SIGINT_FORCE_CLEANUP_MS);
+    } else {
+      cleanup(130);
+    }
+  });
 
-process.on('SIGTERM', () => { cleanup(); });
+  process.on('SIGTERM', () => { cleanup(); });
+} else {
+  // Windows: ConPTY forwards Ctrl+C automatically, just ensure cleanup on exit
+  process.on('exit', () => { if (!cleaningUp) cleanup(); });
+}
 
 // ── Start ──
 startSocketServer();

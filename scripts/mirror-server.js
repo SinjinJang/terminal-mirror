@@ -12,6 +12,7 @@ const qrTerminal = require('qrcode-terminal');
 const { spawn: spawnChild } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
+const { discoverSessions, getTokenPath, sessionMarkerExists } = require('./platform');
 
 // ── Constants ──
 const START_PORT = 3456;
@@ -60,10 +61,10 @@ let serverPort = null;
 const masterToken = crypto.randomBytes(24).toString('hex');
 let scanTimer = null;
 
-function createSession(pid, sockPath) {
+function createSession(pid, ipcPath) {
   return {
     pid,
-    sockPath,
+    sockPath: ipcPath,
     socket: null,
     connected: false,
     wrapperInfo: { cwd: process.cwd(), cols: 80, rows: 24, pid, cmd: '', startedAt: null },
@@ -136,37 +137,13 @@ function broadcastCommentJSON(session, obj) {
 }
 
 // ── Socket discovery ──
-function scanForWrappers() {
-  const tmpDir = os.tmpdir();
-  const found = new Map(); // pid -> sockPath
-  try {
-    for (const entry of fs.readdirSync(tmpDir)) {
-      if (entry.startsWith('tm-') && entry.endsWith('.sock')) {
-        const sockPath = path.join(tmpDir, entry);
-        const pidStr = entry.slice(3, -5);
-        const pid = parseInt(pidStr, 10);
-        if (isNaN(pid)) continue;
-
-        try {
-          process.kill(pid, 0); // Check if process exists
-          found.set(pid, sockPath);
-        } catch {
-          // Process dead — stale socket, clean up
-          try { fs.unlinkSync(sockPath); } catch { /* already removed */ }
-        }
-      }
-    }
-  } catch { /* tmpdir read error */ }
-  return found;
-}
-
 function discoverAndConnect() {
-  const found = scanForWrappers();
+  const found = discoverSessions();
 
   // Connect to newly discovered wrappers
-  for (const [pid, sockPath] of found) {
+  for (const [pid, ipcPath] of found) {
     if (!sessions.has(pid)) {
-      const session = createSession(pid, sockPath);
+      const session = createSession(pid, ipcPath);
       sessions.set(pid, session);
       connectToWrapper(session);
     }
@@ -191,10 +168,9 @@ function discoverAndConnect() {
 // ── Connect to wrapper Unix socket ──
 function connectToWrapper(session) {
   // Try to read auth token from .token file
-  if (!session.wrapperToken && session.sockPath) {
-    const tokenFilePath = session.sockPath.replace(/\.sock$/, '.token');
+  if (!session.wrapperToken) {
     try {
-      session.wrapperToken = fs.readFileSync(tokenFilePath, 'utf-8').trim();
+      session.wrapperToken = fs.readFileSync(getTokenPath(session.pid), 'utf-8').trim();
     } catch { /* token file may not exist yet */ }
   }
 
@@ -231,15 +207,10 @@ function connectToWrapper(session) {
     broadcastTerminalJSON(session, { type: 'wrapper_status', connected: false });
     process.stderr.write(`Disconnected from wrapper PID ${session.pid}.\n`);
 
-    // Attempt reconnect if socket file still exists
-    if (session.reconnects < SOCKET_RECONNECT_MAX) {
-      try {
-        fs.accessSync(session.sockPath);
-        session.reconnects++;
-        setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
-      } catch {
-        // Socket file gone — wrapper exited, don't reconnect
-      }
+    // Attempt reconnect if session marker still exists
+    if (session.reconnects < SOCKET_RECONNECT_MAX && sessionMarkerExists(session.pid)) {
+      session.reconnects++;
+      setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
     }
   });
 
@@ -247,14 +218,9 @@ function connectToWrapper(session) {
     if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') {
       session.connected = false;
       session.socket = null;
-      if (session.reconnects < SOCKET_RECONNECT_MAX) {
-        try {
-          fs.accessSync(session.sockPath);
-          session.reconnects++;
-          setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
-        } catch {
-          // Socket file gone
-        }
+      if (session.reconnects < SOCKET_RECONNECT_MAX && sessionMarkerExists(session.pid)) {
+        session.reconnects++;
+        setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
       }
     }
   });
@@ -703,9 +669,11 @@ function openBrowser(url) {
   const isWSL = process.env.WSL_DISTRO_NAME || (os.release && os.release().includes('microsoft'));
   if (isWSL) {
     spawnChild('powershell.exe', ['-NoProfile', '-Command', `Start-Process '${url}'`], { stdio: 'ignore' });
-  } else if (os.platform() === 'darwin') {
+  } else if (process.platform === 'win32') {
+    spawnChild('cmd.exe', ['/c', 'start', '', url], { stdio: 'ignore' });
+  } else if (process.platform === 'darwin') {
     spawnChild('open', [url], { stdio: 'ignore' });
-  } else if (os.platform() === 'linux') {
+  } else if (process.platform === 'linux') {
     spawnChild('xdg-open', [url], { stdio: 'ignore' });
   }
 }
@@ -754,6 +722,9 @@ function cleanup(exitCode = 0) {
 
 process.on('SIGINT', () => { cleanup(130); });
 process.on('SIGTERM', () => { cleanup(); });
+if (process.platform === 'win32') {
+  process.on('exit', () => { cleanup(); });
+}
 
 // ── Start ──
 async function start() {
