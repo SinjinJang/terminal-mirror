@@ -765,8 +765,11 @@ async function start() {
   process.stderr.write(`PORT=${serverPort}\n`);
   process.stderr.write(`TOKEN=${masterToken}\n`);
   process.stderr.write(`Terminal Mirror: ${url}\n`);
-  qrTerminal.generate(url, { small: true }, (qr) => {
-    process.stderr.write(qr + '\n');
+  await new Promise((resolve) => {
+    qrTerminal.generate(url, { small: true }, (qr) => {
+      process.stderr.write(qr + '\n');
+      resolve();
+    });
   });
 
   // Initial scan + connect to all active wrappers
