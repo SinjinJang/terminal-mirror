@@ -38,14 +38,39 @@ try {
 
 // ── Determine command to run ──
 // On Windows, node-pty cannot spawn .cmd/.bat scripts directly (e.g. npm-installed CLIs).
-// We route through cmd.exe /c so Windows shell resolution handles PATH and extensions.
+// Resolve the full executable path first; fall back to cmd.exe /c if resolution fails.
 let command, commandArgs;
 if (IS_WIN) {
-  command = 'cmd.exe';
-  commandArgs = ['/c', ...rawArgs];
+  const resolved = resolveWindowsCommand(rawArgs[0]);
+  if (resolved) {
+    command = resolved;
+    commandArgs = rawArgs.slice(1);
+  } else {
+    command = process.env.COMSPEC || 'cmd.exe';
+    commandArgs = ['/c', ...rawArgs];
+  }
 } else {
   command = rawArgs[0];
   commandArgs = rawArgs.slice(1);
+}
+
+/**
+ * Resolve a command name to its full path on Windows using `where`.
+ * Returns the first match or null if not found.
+ */
+function resolveWindowsCommand(cmd) {
+  // Already a full path or has extension
+  if (path.isAbsolute(cmd) || path.extname(cmd)) {
+    try { fs.accessSync(cmd); return cmd; } catch { return null; }
+  }
+  try {
+    const { spawnSync } = require('child_process');
+    const result = spawnSync('where', [cmd], { encoding: 'utf-8', timeout: 5000, windowsHide: true });
+    if (result.status === 0 && result.stdout.trim()) {
+      return result.stdout.trim().split(/\r?\n/)[0];
+    }
+  } catch {}
+  return null;
 }
 
 // ── Terminal dimensions ──

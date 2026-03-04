@@ -136,6 +136,17 @@
     fitAddon = new window.FitAddon.FitAddon();
     xterm.loadAddon(fitAddon);
 
+    // Enable Unicode 11 for correct CJK double-width character handling
+    try {
+      if (window.Unicode11Addon) {
+        const unicode11 = new window.Unicode11Addon.Unicode11Addon();
+        xterm.loadAddon(unicode11);
+        xterm.unicode.activeVersion = '11';
+      }
+    } catch (e) {
+      console.warn('Unicode11Addon failed to load:', e);
+    }
+
     xtermContainer.style.display = 'block';
     xterm.open(xtermContainer);
     fitTerminal();
