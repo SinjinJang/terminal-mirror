@@ -126,6 +126,58 @@ tm start-server --remote
 
 All `/api/` and WebSocket endpoints require token authentication. Session-specific endpoints require a `session=<PID>` query parameter to identify the target wrapper.
 
+## Windows Support
+
+Windows is fully supported using Named Pipes and ConPTY.
+
+### Prerequisites
+
+- Node.js >= 20
+- `node-pty` native build tools:
+  - **Option A:** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++" workload
+  - **Option B:** `npm install -g windows-build-tools`
+
+### Installation
+
+```powershell
+cd terminal-mirror
+npm install
+
+# (Optional) Global CLI access
+npm link
+```
+
+### Usage
+
+```powershell
+# Wrap a command
+tm cmd
+tm powershell
+tm claude --model sonnet
+
+# Start mirror server
+tm start-server
+
+# List active sessions
+tm list
+```
+
+Without `npm link`:
+
+```powershell
+node bin/tm.js cmd
+node bin/tm.js start-server
+```
+
+### Platform Differences
+
+| | Unix | Windows |
+|---|---|---|
+| IPC | Unix socket (`/tmp/tm-<PID>.sock`) | Named Pipe (`\\?\pipe\tm-<PID>`) |
+| Session marker | Socket file itself | `%TEMP%\tm-<PID>.pipe` |
+| Token file | `/tmp/tm-<PID>.token` | `%TEMP%\tm-<PID>.token` |
+| Command spawn | Direct PTY spawn | Routed through `cmd.exe /c` |
+
 ## Dependencies
 
 - **node-pty** — PTY management for child processes
