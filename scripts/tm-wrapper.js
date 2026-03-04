@@ -37,8 +37,16 @@ try {
 }
 
 // ── Determine command to run ──
-const command = rawArgs[0];
-const commandArgs = rawArgs.slice(1);
+// On Windows, node-pty cannot spawn .cmd/.bat scripts directly (e.g. npm-installed CLIs).
+// We route through cmd.exe /c so Windows shell resolution handles PATH and extensions.
+let command, commandArgs;
+if (IS_WIN) {
+  command = 'cmd.exe';
+  commandArgs = ['/c', ...rawArgs];
+} else {
+  command = rawArgs[0];
+  commandArgs = rawArgs.slice(1);
+}
 
 // ── Terminal dimensions ──
 const cols = process.stdout.columns || 80;
