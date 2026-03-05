@@ -126,6 +126,7 @@ code.hljs {
   var filePath = params.get('path');
   var targetLine = parseInt(params.get('line'), 10) || 0;
   var authToken = params.get('token') || '';
+  var sessionId = params.get('session') || '';
   var contentEl = document.getElementById('content');
   var filePathEl = document.getElementById('filePath');
   var fileLineEl = document.getElementById('fileLine');
@@ -168,6 +169,7 @@ code.hljs {
 
   var fetchUrl = '/api/file?path=' + encodeURIComponent(filePath);
   if (authToken) fetchUrl += '&token=' + encodeURIComponent(authToken);
+  if (sessionId) fetchUrl += '&session=' + encodeURIComponent(sessionId);
   fetch(fetchUrl)
     .then(function(r) { return r.json(); })
     .then(function(data) {
