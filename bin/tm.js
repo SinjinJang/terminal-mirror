@@ -46,7 +46,8 @@ if (subcommand === '-h' || subcommand === '--help' || subcommand === '') {
     '  tm bash                   Wrap bash\n' +
     '  tm vim file.txt           Wrap vim\n' +
     '  tm start-server           Start mirror server (auto-discovers all sessions)\n' +
-    '  tm start-server --remote  Start mirror server accessible on LAN\n'
+    '  tm start-server --remote  Start mirror server accessible on LAN\n' +
+    '  tm start-server -p 8080   Start mirror server on a specific port\n'
   );
   process.exit(0);
 }

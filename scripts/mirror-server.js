@@ -36,12 +36,19 @@ const MIME_TYPES = {
 const rawArgs = process.argv.slice(2);
 let noOpen = false;
 let remoteMode = false;
+let customPort = null;
 
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === '--no-open') {
     noOpen = true;
   } else if (rawArgs[i] === '--remote') {
     remoteMode = true;
+  } else if ((rawArgs[i] === '--port' || rawArgs[i] === '-p') && rawArgs[i + 1]) {
+    customPort = parseInt(rawArgs[++i], 10);
+    if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
+      process.stderr.write('Invalid port number. Must be 1-65535.\n');
+      process.exit(1);
+    }
   }
 }
 
@@ -729,7 +736,12 @@ if (process.platform === 'win32') {
 // ── Start ──
 async function start() {
   const bindAddr = remoteMode ? '0.0.0.0' : '127.0.0.1';
-  serverPort = await listenOnAvailablePort(httpServer, START_PORT, MAX_PORT_SCAN, bindAddr);
+  if (customPort) {
+    await tryListen(httpServer, customPort, bindAddr);
+    serverPort = customPort;
+  } else {
+    serverPort = await listenOnAvailablePort(httpServer, START_PORT, MAX_PORT_SCAN, bindAddr);
+  }
   const tokenQuery = `?token=${masterToken}`;
   const host = remoteMode ? getLocalIP() : 'localhost';
   const url = `http://${host}:${serverPort}${tokenQuery}`;
