@@ -151,6 +151,11 @@
     }).observe(terminalPanel);
 
     // Ctrl+C with selection → clipboard copy (instead of SIGINT)
+    // Cache selection text to handle Windows where getSelection() may return
+    // empty during Ctrl key processing before the C keydown fires.
+    let cachedSelectionText = '';
+    let clearCacheTimer = null;
+
     function copyToClipboard(text) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).catch(() => copyFallback(text));
@@ -167,16 +172,28 @@
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
+    function updateSelectionCache(text) {
+      if (clearCacheTimer) { clearTimeout(clearCacheTimer); clearCacheTimer = null; }
+      if (text) {
+        cachedSelectionText = text;
+      } else {
+        // Delay clearing so Ctrl+C handler can still use the cached value
+        clearCacheTimer = setTimeout(() => { cachedSelectionText = ''; }, 300);
+      }
+    }
     xterm.attachCustomKeyEventHandler((ev) => {
       if (ev.ctrlKey && ev.type === 'keydown') {
-        if (ev.key === 'c') {
-          const sel = xterm.getSelection();
+        if (ev.key === 'c' || ev.key === 'C' || ev.code === 'KeyC') {
+          const sel = xterm.getSelection() || cachedSelectionText;
           if (sel) {
             copyToClipboard(sel);
+            xterm.clearSelection();
+            cachedSelectionText = '';
+            if (clearCacheTimer) { clearTimeout(clearCacheTimer); clearCacheTimer = null; }
             return false;
           }
         }
-        if (ev.key === 'v') {
+        if (ev.key === 'v' || ev.key === 'V' || ev.code === 'KeyV') {
           ev.preventDefault();
           navigator.clipboard.readText().then((text) => {
             if (text && terminalWs && terminalWs.readyState === WebSocket.OPEN) {
@@ -237,6 +254,7 @@
       if (commentPopup.style.display === 'block') return;
 
       const text = xterm.getSelection().trim();
+      updateSelectionCache(text);
       if (!text) {
         floatBtn.style.display = 'none';
         lineHighlight.style.display = 'none';
