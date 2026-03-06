@@ -1112,9 +1112,7 @@
           if (msg.type === 'shutdown') { handleShutdown(); return; }
           if (msg.type === 'resize' && xterm) {
             serverCols = msg.cols;
-            if (!isMobile) {
-              xterm.resize(msg.cols, msg.rows);
-            }
+            fitTerminal();
           }
           if (msg.type === 'wrapper_status') {
             updateWrapperStatus(msg.connected);
