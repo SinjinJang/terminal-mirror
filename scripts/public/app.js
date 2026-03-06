@@ -62,6 +62,10 @@
     xterm.options.fontSize = s.fontSize;
     xterm.options.lineHeight = s.lineHeight;
     xterm.options.scrollback = s.scrollback;
+    if (textViewEnabled) {
+      textViewContainer.style.fontSize = s.fontSize + 'px';
+      textViewContainer.style.lineHeight = String(s.lineHeight);
+    }
     fitTerminal();
     renderCommentOverlays();
   }
@@ -87,6 +91,8 @@
   const wsStatus = document.getElementById('wsStatus');
   const wrapperStatusEl = document.getElementById('wrapperStatus');
   const scrollBottomBtn = document.getElementById('scrollBottomBtn');
+  const textViewContainer = document.getElementById('textViewContainer');
+  const toggleViewBtn = document.getElementById('toggleViewBtn');
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsPanel = document.getElementById('settingsPanel');
   const fontSizeRange = document.getElementById('fontSizeRange');
@@ -110,9 +116,101 @@
   // Fit terminal to container but constrain cols to server PTY width (desktop only)
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
+    if (textViewEnabled) return; // text view handles its own layout
     fitAddon.fit();
-    if (!isMobile && serverCols !== null && xterm.cols !== serverCols) {
+    if (serverCols !== null && xterm.cols !== serverCols) {
       xterm.resize(serverCols, xterm.rows);
+    }
+  }
+
+  // ── Text view mode (mobile) ──
+  let textViewEnabled = false;
+  let textViewUpdateTimer = null;
+  const TEXT_VIEW_DEBOUNCE_MS = 80;
+
+  function extractBufferText() {
+    if (!xterm) return [];
+    const buf = xterm.buffer.active;
+
+    // Pass 1: merge wrapped lines (terminal-width line breaks → single logical line)
+    const logical = [];
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (!line) { logical.push(''); continue; }
+      const text = line.translateToString(true);
+      if (line.isWrapped && logical.length > 0) {
+        logical[logical.length - 1] += text;
+      } else {
+        logical.push(text);
+      }
+    }
+
+    // Pass 2: trim trailing empty lines
+    while (logical.length > 0 && logical[logical.length - 1] === '') {
+      logical.pop();
+    }
+
+    // Pass 3: collapse consecutive empty lines and deduplicate consecutive identical lines
+    const result = [];
+    let prevEmpty = false;
+    let prevText = null;
+    for (let i = 0; i < logical.length; i++) {
+      const text = logical[i];
+      const isEmpty = text === '';
+      if (isEmpty && prevEmpty) continue;
+      if (!isEmpty && text === prevText) continue;
+      result.push(text);
+      prevEmpty = isEmpty;
+      prevText = text;
+    }
+
+    return result;
+  }
+
+  function scheduleTextViewUpdate() {
+    if (!textViewEnabled) return;
+    if (textViewUpdateTimer) return; // already scheduled
+    textViewUpdateTimer = setTimeout(() => {
+      textViewUpdateTimer = null;
+      renderTextView();
+    }, TEXT_VIEW_DEBOUNCE_MS);
+  }
+
+  function renderTextView() {
+    if (!textViewEnabled || !xterm) return;
+    const lines = extractBufferText();
+    const wasAtBottom = textViewContainer.scrollHeight - textViewContainer.scrollTop - textViewContainer.clientHeight < 30;
+
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < lines.length; i++) {
+      const div = document.createElement('div');
+      if (lines[i] === '') {
+        div.className = 'tv-line tv-empty';
+      } else {
+        div.className = 'tv-line';
+        div.textContent = lines[i];
+      }
+      fragment.appendChild(div);
+    }
+    textViewContainer.innerHTML = '';
+    textViewContainer.appendChild(fragment);
+
+    if (wasAtBottom) {
+      textViewContainer.scrollTop = textViewContainer.scrollHeight;
+    }
+  }
+
+  function setTextViewMode(enabled) {
+    textViewEnabled = enabled;
+    toggleViewBtn.classList.toggle('active', enabled);
+    if (enabled) {
+      xtermContainer.style.display = 'none';
+      textViewContainer.style.display = 'block';
+      renderTextView();
+    } else {
+      textViewContainer.style.display = 'none';
+      xtermContainer.style.display = 'block';
+      fitTerminal();
     }
   }
 
@@ -140,8 +238,18 @@
     xterm.open(xtermContainer);
     fitTerminal();
 
+    // Toggle view button
+    toggleViewBtn.addEventListener('click', () => {
+      setTextViewMode(!textViewEnabled);
+    });
+
+    // Auto-enable text view on mobile
+    if (isMobile) setTextViewMode(true);
+
     window.addEventListener('resize', () => {
+      const wasMobile = isMobile;
       isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+      if (isMobile && !wasMobile) setTextViewMode(true);
       fitTerminal();
       renderCommentOverlays();
     });
@@ -546,7 +654,12 @@
 
     // ── Scroll-to-bottom button logic ──
     function updateScrollBottomBtn() {
-      const isAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
+      let isAtBottom;
+      if (textViewEnabled) {
+        isAtBottom = textViewContainer.scrollHeight - textViewContainer.scrollTop - textViewContainer.clientHeight < 30;
+      } else {
+        isAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
+      }
       if (isAtBottom) {
         scrollBottomBtn.classList.remove('visible');
       } else {
@@ -555,7 +668,15 @@
     }
 
     scrollBottomBtn.addEventListener('click', () => {
-      xterm.scrollToBottom();
+      if (textViewEnabled) {
+        textViewContainer.scrollTop = textViewContainer.scrollHeight;
+      } else {
+        xterm.scrollToBottom();
+      }
+    });
+
+    textViewContainer.addEventListener('scroll', () => {
+      updateScrollBottomBtn();
     });
 
     xtermContainer.addEventListener('wheel', () => {
@@ -1021,6 +1142,7 @@
       xterm.clear();
     }
     serverCols = null;
+    textViewContainer.innerHTML = '';
 
     // Clear per-session state
     comments = [];
@@ -1105,7 +1227,10 @@
 
     terminalWs.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
-        if (xterm) xterm.write(new Uint8Array(e.data));
+        if (xterm) {
+          xterm.write(new Uint8Array(e.data));
+          scheduleTextViewUpdate();
+        }
       } else {
         try {
           const msg = JSON.parse(e.data);

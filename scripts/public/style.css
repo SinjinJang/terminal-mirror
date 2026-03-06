@@ -652,6 +652,54 @@ kbd {
   height: 100%;
 }
 
+/* ── Text view toggle button ── */
+.btn-toggle-view {
+  background: #2a2a2a;
+  color: #888;
+  border: 1px solid #3a3a3a;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.btn-toggle-view:hover { background: #3a3a3a; color: #e4e4e4; }
+
+.btn-toggle-view.active {
+  background: #7aa2f7;
+  color: #0a0a0a;
+  border-color: #7aa2f7;
+}
+
+/* ── Text view (mobile re-rendered mode) ── */
+.text-view-container {
+  display: none;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #0a0a0a;
+  padding: 4px 6px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #e4e4e4;
+  -webkit-overflow-scrolling: touch;
+}
+
+.text-view-container .tv-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text-view-container .tv-line.tv-empty {
+  height: 0.7em;
+}
+
 /* ── Mobile responsive ── */
 @media (max-width: 768px) {
   #xtermContainer {

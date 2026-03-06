@@ -20,6 +20,7 @@
       <option value="">No sessions</option>
     </select>
     <button class="btn-refresh" id="refreshSessionsBtn" title="Refresh sessions">&#x21bb;</button>
+    <button class="btn btn-toggle-view" id="toggleViewBtn" title="Toggle text view">Aa</button>
     <div class="settings-wrapper">
       <button class="btn btn-settings" id="settingsBtn" title="Terminal Settings">&#9881;</button>
       <div class="settings-panel" id="settingsPanel">
@@ -47,6 +48,7 @@
 <div class="main">
   <div class="terminal-panel" id="terminalPanel">
     <div id="xtermContainer"></div>
+    <div id="textViewContainer" class="text-view-container"></div>
     <div class="loading" id="loadingState">Connecting...</div>
     <button class="scroll-bottom-btn" id="scrollBottomBtn">&darr;</button>
   </div>
