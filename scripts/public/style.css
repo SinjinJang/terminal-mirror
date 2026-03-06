@@ -31,6 +31,7 @@ body {
 .header-actions {
   display: flex;
   gap: 8px;
+  min-width: 0;
 }
 
 .btn {
@@ -143,6 +144,8 @@ body {
   cursor: pointer;
   outline: none;
   max-width: 280px;
+  min-width: 0;
+  flex-shrink: 1;
   transition: border-color 0.15s;
 }
 
@@ -166,6 +169,7 @@ body {
   font-size: 15px;
   width: 28px;
   height: 28px;
+  flex-shrink: 0;
   border-radius: 6px;
   cursor: pointer;
   display: flex;
