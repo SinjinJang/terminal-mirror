@@ -9,6 +9,9 @@
   "bin": {
     "tm": "./bin/tm.js"
   },
+  "scripts": {
+    "postinstall": "node -e \"const p=require('path'),fs=require('fs'),f=p.join(__dirname,'node_modules/node-pty/prebuilds',process.platform+'-'+process.arch,'spawn-helper');try{fs.chmodSync(f,0o755)}catch{}\""
+  },
   "dependencies": {
     "node-pty": "^1.0.0",
     "qrcode-terminal": "^0.12.0",
