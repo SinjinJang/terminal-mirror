@@ -1265,6 +1265,12 @@
             if (!msg.connected && msg.exitCode !== undefined) {
               showToast('Wrapper process exited (code ' + msg.exitCode + ')');
               if (xterm) { xterm.reset(); xterm.clear(); }
+              // Auto-switch to another session after brief delay for server cleanup
+              setTimeout(async () => {
+                const sessions = await refreshSessions();
+                const other = sessions.find(s => s.pid !== currentSessionPid);
+                if (other) switchToSession(other.pid);
+              }, 1000);
             }
           }
         } catch {}
