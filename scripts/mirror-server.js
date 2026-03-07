@@ -58,6 +58,11 @@ for (let i = 0; i < rawArgs.length; i++) {
   }
 }
 
+// Default: no auth for local mode, auth required for remote mode
+if (!noAuth) {
+  noAuth = !remoteMode;
+}
+
 // ── Dependency: ws ──
 let WebSocket;
 try {
