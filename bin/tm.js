@@ -3,9 +3,9 @@
 // tm.js — Cross-platform CLI entrypoint for terminal-mirror.
 //
 // Usage:
-//   tm <command> [args...]    Wrap a command in a PTY with mirror socket
-//   tm start-server [opts]    Start multi-session mirror web server
-//   tm list                   List active tm-wrapper sessions
+//   tm exec <command> [args...]  Wrap a command in a PTY with mirror socket
+//   tm start-server [opts]       Start multi-session mirror web server
+//   tm list                      List active tm-wrapper sessions
 
 const { spawn } = require('child_process');
 const path = require('path');
@@ -37,20 +37,24 @@ const subcommand = args[0] || '';
 if (subcommand === '-h' || subcommand === '--help' || subcommand === '') {
   process.stdout.write(
     'Usage:\n' +
-    '  tm <command> [args...]    Wrap a command in a PTY with mirror socket\n' +
-    '  tm start-server [opts]    Start multi-session mirror web server\n' +
-    '  tm list                   List active tm-wrapper sessions\n' +
+    '  tm exec <command> [args...]  Wrap a command in a PTY with mirror socket\n' +
+    '  tm start-server [opts]       Start multi-session mirror web server\n' +
+    '  tm list                      List active tm-wrapper sessions\n' +
     '\n' +
     'Examples:\n' +
-    '  tm claude --model sonnet  Wrap Claude with terminal mirror support\n' +
-    '  tm bash                   Wrap bash\n' +
-    '  tm vim file.txt           Wrap vim\n' +
-    '  tm start-server           Start mirror server (auto-discovers all sessions)\n' +
-    '  tm start-server --spawn   Enable spawning new terminal sessions from web UI\n' +
-    '  tm start-server --remote  Start mirror server accessible on LAN\n' +
-    '  tm start-server -p 8080   Start mirror server on a specific port\n' +
-    '  tm start-server --no-auth Disable token authentication (auth is auto for --remote)\n' +
-    '  tm start-server --open    Open browser automatically on server start\n'
+    '  tm exec claude --model sonnet  Wrap Claude with terminal mirror support\n' +
+    '  tm exec bash                   Wrap bash\n' +
+    '  tm exec vim file.txt           Wrap vim\n' +
+    '  tm start-server               Start mirror server (auto-discovers all sessions)\n' +
+    '  tm start-server --spawn       Enable spawning new terminal sessions from web UI\n' +
+    '  tm start-server --remote      Start mirror server accessible on LAN\n' +
+    '  tm start-server -p 8080       Start mirror server on a specific port\n' +
+    '  tm start-server --no-auth     Disable token authentication (auth is auto for --remote)\n' +
+    '  tm start-server --open        Open browser automatically on server start\n' +
+    '\n' +
+    'Config file: ~/.config/terminal-mirror/config.json\n' +
+    '  Set default options for start-server (CLI flags override config).\n' +
+    '  Keys: port, remote, open, spawn, noAuth\n'
   );
   process.exit(0);
 }
@@ -67,10 +71,18 @@ switch (subcommand) {
     script = path.join(SCRIPTS_DIR, 'tm-list.js');
     scriptArgs = args.slice(1);
     break;
-  default:
+  case 'exec':
+    if (args.length < 2) {
+      process.stderr.write('Usage: tm exec <command> [args...]\n');
+      process.exit(1);
+    }
     script = path.join(SCRIPTS_DIR, 'tm-wrapper.js');
-    scriptArgs = args;
+    scriptArgs = args.slice(1);
     break;
+  default:
+    process.stderr.write(`Unknown command: ${subcommand}\n`);
+    process.stderr.write("Run 'tm --help' for usage.\n");
+    process.exit(1);
 }
 
 ensureDeps();

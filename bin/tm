@@ -2,9 +2,9 @@
 # tm — Universal terminal wrapper + mirror CLI
 #
 # Usage:
-#   tm <command> [args...]    Wrap a command in a PTY with mirror socket
-#   tm start-server [opts]    Start multi-session mirror web server
-#   tm list                   List active tm-wrapper sessions
+#   tm exec <command> [args...]  Wrap a command in a PTY with mirror socket
+#   tm start-server [opts]       Start multi-session mirror web server
+#   tm list                      List active tm-wrapper sessions
 
 set -euo pipefail
 
@@ -34,26 +34,40 @@ case "${1:-}" in
     ensure_deps
     exec node "$LIST_JS" "$@"
     ;;
+  exec)
+    shift
+    if [ $# -eq 0 ]; then
+      echo "Usage: tm exec <command> [args...]" >&2
+      exit 1
+    fi
+    ensure_deps
+    exec node "$WRAPPER_JS" "$@"
+    ;;
   -h|--help|"")
     echo "Usage:"
-    echo "  tm <command> [args...]    Wrap a command in a PTY with mirror socket"
-    echo "  tm start-server [opts]    Start multi-session mirror web server"
-    echo "  tm list                   List active tm-wrapper sessions"
+    echo "  tm exec <command> [args...]  Wrap a command in a PTY with mirror socket"
+    echo "  tm start-server [opts]       Start multi-session mirror web server"
+    echo "  tm list                      List active tm-wrapper sessions"
     echo ""
     echo "Examples:"
-    echo "  tm claude --model sonnet  Wrap Claude with terminal mirror support"
-    echo "  tm bash                   Wrap bash"
-    echo "  tm vim file.txt           Wrap vim"
-    echo "  tm start-server           Start mirror server (auto-discovers all sessions)"
-    echo "  tm start-server --spawn   Enable spawning new terminal sessions from web UI"
-    echo "  tm start-server --remote  Start mirror server accessible on LAN"
-    echo "  tm start-server -p 8080   Start mirror server on a specific port"
-    echo "  tm start-server --no-auth Disable token authentication (auth is auto for --remote)"
-    echo "  tm start-server --open    Open browser automatically on server start"
+    echo "  tm exec claude --model sonnet  Wrap Claude with terminal mirror support"
+    echo "  tm exec bash                   Wrap bash"
+    echo "  tm exec vim file.txt           Wrap vim"
+    echo "  tm start-server               Start mirror server (auto-discovers all sessions)"
+    echo "  tm start-server --spawn       Enable spawning new terminal sessions from web UI"
+    echo "  tm start-server --remote      Start mirror server accessible on LAN"
+    echo "  tm start-server -p 8080       Start mirror server on a specific port"
+    echo "  tm start-server --no-auth     Disable token authentication (auth is auto for --remote)"
+    echo "  tm start-server --open        Open browser automatically on server start"
+    echo ""
+    echo "Config file: ~/.config/terminal-mirror/config.json"
+    echo "  Set default options for start-server (CLI flags override config)."
+    echo "  Keys: port, remote, open, spawn, noAuth"
     exit 0
     ;;
   *)
-    ensure_deps
-    exec node "$WRAPPER_JS" "$@"
+    echo "Unknown command: $1" >&2
+    echo "Run 'tm --help' for usage." >&2
+    exit 1
     ;;
 esac

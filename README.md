@@ -24,8 +24,8 @@ Web Browser ── xterm.js + Comment UI + Session Selector
 
 ```bash
 # 1. Start one or more wrapped sessions
-tm bash
-tm claude --model sonnet   # in another terminal
+tm exec bash
+tm exec claude --model sonnet   # in another terminal
 
 # 2. Start the mirror server (auto-discovers all sessions)
 tm start-server
@@ -34,15 +34,15 @@ tm start-server
 
 ## CLI Usage
 
-### `tm <command> [args...]`
+### `tm exec <command> [args...]`
 
 Wraps any command in a PTY with mirror socket support.
 
 ```bash
-tm bash
-tm claude --model sonnet
-tm vim file.txt
-tm python script.py
+tm exec bash
+tm exec claude --model sonnet
+tm exec vim file.txt
+tm exec python script.py
 ```
 
 Sets environment variables for the child process:
@@ -75,6 +75,28 @@ Lists all active tm-wrapper sessions.
 PID      CMD                        CWD                            STARTED
 1234     bash                       /home/user/project             2024-03-01 14:22:30
 ```
+
+## Config File
+
+Default options for `start-server` can be set in `~/.config/terminal-mirror/config.json`. CLI flags always override config file values.
+
+```json
+{
+  "port": 8080,
+  "remote": true,
+  "open": true,
+  "spawn": false,
+  "noAuth": false
+}
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `port` | number | Server port (1-65535) |
+| `remote` | boolean | Bind on `0.0.0.0` for LAN access |
+| `open` | boolean | Auto-open browser on start |
+| `spawn` | boolean | Enable spawning sessions from web UI |
+| `noAuth` | boolean | Disable token authentication |
 
 ## Remote Access
 
@@ -151,9 +173,9 @@ npm link
 
 ```powershell
 # Wrap a command
-tm cmd
-tm powershell
-tm claude --model sonnet
+tm exec cmd
+tm exec powershell
+tm exec claude --model sonnet
 
 # Start mirror server
 tm start-server
@@ -165,7 +187,7 @@ tm list
 Without `npm link`:
 
 ```powershell
-node bin/tm.js cmd
+node bin/tm.js exec cmd
 node bin/tm.js start-server
 ```
 

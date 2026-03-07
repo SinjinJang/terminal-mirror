@@ -18,11 +18,11 @@ const SIGINT_FORCE_CLEANUP_MS = 3000;
 // ── Parse CLI args ──
 const rawArgs = process.argv.slice(2);
 if (rawArgs.length === 0) {
-  process.stderr.write('Usage: tm <command> [args...]\n');
+  process.stderr.write('Usage: tm exec <command> [args...]\n');
   process.stderr.write('Examples:\n');
-  process.stderr.write('  tm claude --model sonnet\n');
-  process.stderr.write('  tm bash\n');
-  process.stderr.write('  tm vim file.txt\n');
+  process.stderr.write('  tm exec claude --model sonnet\n');
+  process.stderr.write('  tm exec bash\n');
+  process.stderr.write('  tm exec vim file.txt\n');
   process.exit(1);
 }
 

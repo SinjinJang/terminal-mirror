@@ -32,13 +32,26 @@ const MIME_TYPES = {
   '.js': 'application/javascript; charset=utf-8',
 };
 
-// ── Parse CLI args ──
+// ── Load config file ──
+function loadConfigFile() {
+  const configPath = path.join(os.homedir(), '.config', 'terminal-mirror', 'config.json');
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+const config = loadConfigFile();
+
+// ── Parse CLI args (overrides config file) ──
 const rawArgs = process.argv.slice(2);
 let openBrowserFlag = false;
 let remoteMode = false;
 let customPort = null;
 let spawnSession = false;
 let noAuth = false;
+let hasCliAuth = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === '--open') {
@@ -49,6 +62,7 @@ for (let i = 0; i < rawArgs.length; i++) {
     spawnSession = true;
   } else if (rawArgs[i] === '--no-auth') {
     noAuth = true;
+    hasCliAuth = true;
   } else if ((rawArgs[i] === '--port' || rawArgs[i] === '-p') && rawArgs[i + 1]) {
     customPort = parseInt(rawArgs[++i], 10);
     if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
@@ -58,8 +72,21 @@ for (let i = 0; i < rawArgs.length; i++) {
   }
 }
 
-// Default: no auth for local mode, auth required for remote mode
-if (!noAuth) {
+// Apply config file defaults for flags not set via CLI
+if (!openBrowserFlag && config.open) openBrowserFlag = true;
+if (!remoteMode && config.remote) remoteMode = true;
+if (!spawnSession && config.spawn) spawnSession = true;
+if (customPort == null && config.port != null) {
+  customPort = parseInt(config.port, 10);
+  if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
+    process.stderr.write('Invalid port in config file. Must be 1-65535.\n');
+    process.exit(1);
+  }
+}
+if (!hasCliAuth && config.noAuth != null) {
+  noAuth = !!config.noAuth;
+} else if (!hasCliAuth) {
+  // Default: no auth for local mode, auth required for remote mode
   noAuth = !remoteMode;
 }
 
