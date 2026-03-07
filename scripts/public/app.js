@@ -1229,6 +1229,11 @@
 
   function connectTerminalWs() {
     if (!currentSessionPid) return;
+    if (terminalWs) {
+      terminalWs.onclose = null;
+      terminalWs.close();
+      terminalWs = null;
+    }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams();
     if (authToken) params.set('token', authToken);
@@ -1259,6 +1264,7 @@
             updateWrapperStatus(msg.connected);
             if (!msg.connected && msg.exitCode !== undefined) {
               showToast('Wrapper process exited (code ' + msg.exitCode + ')');
+              if (xterm) { xterm.reset(); xterm.clear(); }
             }
           }
         } catch {}
@@ -1285,6 +1291,11 @@
 
   function connectCommentWs() {
     if (!currentSessionPid) return;
+    if (commentWs) {
+      commentWs.onclose = null;
+      commentWs.close();
+      commentWs = null;
+    }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams();
     if (authToken) params.set('token', authToken);
