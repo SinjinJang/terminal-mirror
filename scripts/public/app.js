@@ -1063,11 +1063,17 @@
     history.replaceState(null, '', newUrl);
   }
 
+  let spawnEnabled = false;
+
   async function fetchSessions() {
     try {
       const resp = await authFetch('/api/sessions');
       if (!resp.ok) return [];
-      return await resp.json();
+      const data = await resp.json();
+      if (Array.isArray(data)) return data; // backward compat
+      spawnEnabled = !!data.spawnEnabled;
+      updateSpawnButton();
+      return data.sessions || [];
     } catch { return []; }
   }
 
@@ -1173,6 +1179,32 @@
     btn.classList.add('spinning');
     await refreshSessions();
     setTimeout(() => btn.classList.remove('spinning'), 600);
+  });
+
+  function updateSpawnButton() {
+    const btn = document.getElementById('spawnSessionBtn');
+    if (btn) btn.style.display = spawnEnabled ? '' : 'none';
+  }
+
+  document.getElementById('spawnSessionBtn').addEventListener('click', async function () {
+    const btn = this;
+    btn.disabled = true;
+    try {
+      const resp = await authFetch('/api/spawn', { method: 'POST' });
+      if (resp.ok) {
+        const { pid } = await resp.json();
+        // Wait for wrapper to initialize, then refresh and switch
+        setTimeout(async () => {
+          await refreshSessions();
+          if (pid) switchToSession(pid);
+          btn.disabled = false;
+        }, 800);
+      } else {
+        btn.disabled = false;
+      }
+    } catch {
+      btn.disabled = false;
+    }
   });
 
   sessionSelect.addEventListener('change', () => {

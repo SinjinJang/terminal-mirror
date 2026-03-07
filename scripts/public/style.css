@@ -181,6 +181,26 @@ body {
 .btn-refresh.spinning { animation: spin 0.6s linear; pointer-events: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.btn-spawn {
+  margin-left: 0;
+  background: transparent;
+  border: 1px solid #333;
+  color: #9ece6a;
+  font-size: 16px;
+  font-weight: bold;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-spawn:hover { color: #fff; border-color: #9ece6a; background: rgba(158,206,106,0.15); }
+.btn-spawn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Main layout */
 .main {
   display: flex;

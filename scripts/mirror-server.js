@@ -37,12 +37,15 @@ const rawArgs = process.argv.slice(2);
 let noOpen = false;
 let remoteMode = false;
 let customPort = null;
+let spawnSession = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === '--no-open') {
     noOpen = true;
   } else if (rawArgs[i] === '--remote') {
     remoteMode = true;
+  } else if (rawArgs[i] === '--spawn') {
+    spawnSession = true;
   } else if ((rawArgs[i] === '--port' || rawArgs[i] === '-p') && rawArgs[i + 1]) {
     customPort = parseInt(rawArgs[++i], 10);
     if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
@@ -64,6 +67,7 @@ try {
 
 // ── State ──
 const sessions = new Map(); // keyed by wrapper PID
+const spawnedChildren = new Map(); // PID → child process (spawned via --spawn)
 let serverPort = null;
 const masterToken = crypto.randomBytes(24).toString('hex');
 let scanTimer = null;
@@ -384,7 +388,7 @@ const httpServer = http.createServer(async (req, res) => {
       return new Date(b.startedAt) - new Date(a.startedAt);
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(list));
+    res.end(JSON.stringify({ sessions: list, spawnEnabled: spawnSession }));
     return;
   }
 
@@ -490,6 +494,29 @@ const httpServer = http.createServer(async (req, res) => {
     const messages = session.messageQueue.splice(0);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ messages }));
+    return;
+  }
+
+  // Spawn new terminal session
+  if (req.method === 'POST' && pathname === '/api/spawn') {
+    if (!spawnSession) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Spawn not enabled. Start server with --spawn option.' }));
+      return;
+    }
+    const shell = process.env.SHELL || (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+    const wrapperScript = path.join(__dirname, 'tm-wrapper.js');
+    const child = spawnChild(process.execPath, [wrapperScript, shell], {
+      cwd: os.homedir(),
+      stdio: 'ignore',
+    });
+    spawnedChildren.set(child.pid, child);
+    child.on('exit', () => spawnedChildren.delete(child.pid));
+    process.stderr.write(`Spawned terminal session (PID ${child.pid}): ${shell} in ${os.homedir()}\n`);
+    // Wait briefly for wrapper to create its socket, then discover it
+    setTimeout(() => discoverAndConnect(), 500);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, pid: child.pid }));
     return;
   }
 
@@ -688,6 +715,12 @@ function openBrowser(url) {
 // ── Cleanup ──
 function cleanup(exitCode = 0) {
   if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+
+  // Terminate spawned child processes
+  for (const [pid, child] of spawnedChildren) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already exited */ }
+  }
+  spawnedChildren.clear();
 
   const shutdownMsg = JSON.stringify({ type: 'shutdown' });
 
