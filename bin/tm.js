@@ -48,7 +48,8 @@ if (subcommand === '-h' || subcommand === '--help' || subcommand === '') {
     '  tm start-server           Start mirror server (auto-discovers all sessions)\n' +
     '  tm start-server --spawn   Enable spawning new terminal sessions from web UI\n' +
     '  tm start-server --remote  Start mirror server accessible on LAN\n' +
-    '  tm start-server -p 8080   Start mirror server on a specific port\n'
+    '  tm start-server -p 8080   Start mirror server on a specific port\n' +
+    '  tm start-server --no-auth Start mirror server without token authentication\n'
   );
   process.exit(0);
 }

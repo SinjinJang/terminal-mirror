@@ -38,6 +38,7 @@ let noOpen = false;
 let remoteMode = false;
 let customPort = null;
 let spawnSession = false;
+let noAuth = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === '--no-open') {
@@ -46,6 +47,8 @@ for (let i = 0; i < rawArgs.length; i++) {
     remoteMode = true;
   } else if (rawArgs[i] === '--spawn') {
     spawnSession = true;
+  } else if (rawArgs[i] === '--no-auth') {
+    noAuth = true;
   } else if ((rawArgs[i] === '--port' || rawArgs[i] === '-p') && rawArgs[i + 1]) {
     customPort = parseInt(rawArgs[++i], 10);
     if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
@@ -361,7 +364,7 @@ const httpServer = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   // Token validation gate for /api/ routes
-  if (pathname.startsWith('/api/')) {
+  if (pathname.startsWith('/api/') && !noAuth) {
     if (!isValidToken(extractToken(req))) {
       rejectUnauthorized(res);
       return;
@@ -602,11 +605,13 @@ httpServer.on('upgrade', (request, socket, head) => {
   }
 
   const upgradeUrl = new URL(request.url, 'http://localhost');
-  const wsToken = upgradeUrl.searchParams.get('token') || '';
-  if (!isValidToken(wsToken)) {
-    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-    socket.destroy();
-    return;
+  if (!noAuth) {
+    const wsToken = upgradeUrl.searchParams.get('token') || '';
+    if (!isValidToken(wsToken)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
   }
 
   const pathname = upgradeUrl.pathname;
@@ -775,11 +780,15 @@ async function start() {
   } else {
     serverPort = await listenOnAvailablePort(httpServer, START_PORT, MAX_PORT_SCAN, bindAddr);
   }
-  const tokenQuery = `?token=${masterToken}`;
+  const tokenQuery = noAuth ? '' : `?token=${masterToken}`;
   const host = remoteMode ? getLocalIP() : 'localhost';
   const url = `http://${host}:${serverPort}${tokenQuery}`;
   process.stderr.write(`PORT=${serverPort}\n`);
-  process.stderr.write(`TOKEN=${masterToken}\n`);
+  if (!noAuth) {
+    process.stderr.write(`TOKEN=${masterToken}\n`);
+  } else {
+    process.stderr.write('\n\x1b[1;31m⚠ WARNING: Authentication is disabled (--no-auth).\n  Anyone with network access can view and control terminal sessions.\x1b[0m\n\n');
+  }
   process.stderr.write(`Terminal Mirror: ${url}\n`);
   await new Promise((resolve) => {
     qrTerminal.generate(url, { small: true }, (qr) => {
