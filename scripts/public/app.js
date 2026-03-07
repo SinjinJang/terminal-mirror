@@ -857,6 +857,10 @@
 
     const batchId = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
     knownBatchIds.add(batchId);
+    if (knownBatchIds.size > 200) {
+      const first = knownBatchIds.values().next().value;
+      knownBatchIds.delete(first);
+    }
 
     const parts = [];
     for (const c of comments) {

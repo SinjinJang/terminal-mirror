@@ -129,26 +129,9 @@ function resolveNextPoll(session) {
 }
 
 // ── Helpers: broadcast (per-session) ──
-function broadcastTerminalJSON(session, obj) {
-  const msg = JSON.stringify(obj);
-  for (const ws of session.terminalClients) {
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(msg); } catch { /* ws may be closing */ }
-    }
-  }
-}
-
-function broadcastTerminalBinary(session, buf) {
-  for (const ws of session.terminalClients) {
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(buf); } catch { /* ws may be closing */ }
-    }
-  }
-}
-
-function broadcastCommentJSON(session, obj) {
-  const msg = JSON.stringify(obj);
-  for (const ws of session.commentClients) {
+function broadcast(clientSet, data) {
+  const msg = typeof data === 'object' && !Buffer.isBuffer(data) ? JSON.stringify(data) : data;
+  for (const ws of clientSet) {
     if (ws.readyState === WebSocket.OPEN) {
       try { ws.send(msg); } catch { /* ws may be closing */ }
     }
@@ -203,7 +186,7 @@ function connectToWrapper(session) {
     session.connected = true;
     session.reconnects = 0;
     process.stderr.write(`Connected to wrapper PID ${session.pid}.\n`);
-    broadcastTerminalJSON(session, { type: 'wrapper_status', connected: true });
+    broadcast(session.terminalClients,{ type: 'wrapper_status', connected: true });
   });
 
   sock.on('data', (chunk) => {
@@ -220,27 +203,24 @@ function connectToWrapper(session) {
     }
   });
 
-  sock.on('close', () => {
+  function scheduleReconnect() {
     session.connected = false;
     session.socket = null;
-    broadcastTerminalJSON(session, { type: 'wrapper_status', connected: false });
-    process.stderr.write(`Disconnected from wrapper PID ${session.pid}.\n`);
-
-    // Attempt reconnect if session marker still exists
     if (session.reconnects < SOCKET_RECONNECT_MAX && sessionMarkerExists(session.pid)) {
       session.reconnects++;
       setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
     }
+  }
+
+  sock.on('close', () => {
+    broadcast(session.terminalClients,{ type: 'wrapper_status', connected: false });
+    process.stderr.write(`Disconnected from wrapper PID ${session.pid}.\n`);
+    scheduleReconnect();
   });
 
   sock.on('error', (err) => {
     if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') {
-      session.connected = false;
-      session.socket = null;
-      if (session.reconnects < SOCKET_RECONNECT_MAX && sessionMarkerExists(session.pid)) {
-        session.reconnects++;
-        setTimeout(() => connectToWrapper(session), SOCKET_RECONNECT_MS);
-      }
+      scheduleReconnect();
     }
   });
 }
@@ -261,25 +241,25 @@ function handleWrapperMessage(session, msg) {
       if (msg.token && !session.wrapperToken) {
         session.wrapperToken = msg.token;
       }
-      broadcastTerminalJSON(session, { type: 'resize', cols: session.wrapperInfo.cols, rows: session.wrapperInfo.rows });
+      broadcast(session.terminalClients,{ type: 'resize', cols: session.wrapperInfo.cols, rows: session.wrapperInfo.rows });
       break;
 
     case 'scrollback':
     case 'output': {
       const buf = Buffer.from(msg.data, 'base64');
       appendReplayBuffer(session, buf);
-      broadcastTerminalBinary(session, buf);
+      broadcast(session.terminalClients,buf);
       break;
     }
 
     case 'resize':
       session.wrapperInfo.cols = msg.cols;
       session.wrapperInfo.rows = msg.rows;
-      broadcastTerminalJSON(session, { type: 'resize', cols: msg.cols, rows: msg.rows });
+      broadcast(session.terminalClients,{ type: 'resize', cols: msg.cols, rows: msg.rows });
       break;
 
     case 'exit':
-      broadcastTerminalJSON(session, { type: 'wrapper_status', connected: false, exitCode: msg.exitCode });
+      broadcast(session.terminalClients,{ type: 'wrapper_status', connected: false, exitCode: msg.exitCode });
       break;
   }
 }
@@ -300,6 +280,15 @@ function getSessionFromQuery(url) {
   const pid = parseInt(pidStr, 10);
   if (isNaN(pid)) return null;
   return sessions.get(pid) || null;
+}
+
+function requireSession(url, res) {
+  const session = getSessionFromQuery(url);
+  if (!session) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
+  }
+  return session;
 }
 
 // ── HTTP server ──
@@ -402,12 +391,8 @@ const httpServer = http.createServer(async (req, res) => {
 
   // Status endpoint (session-aware)
   if (req.method === 'GET' && pathname === '/api/status') {
-    const session = getSessionFromQuery(url);
-    if (!session) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
-      return;
-    }
+    const session = requireSession(url, res);
+    if (!session) return;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       cols: session.wrapperInfo.cols,
@@ -421,12 +406,8 @@ const httpServer = http.createServer(async (req, res) => {
 
   // Submit comments + message (session-aware)
   if (req.method === 'POST' && pathname === '/api/submit') {
-    const session = getSessionFromQuery(url);
-    if (!session) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
-      return;
-    }
+    const session = requireSession(url, res);
+    if (!session) return;
     try {
       const body = await readBody(req);
       const { comments = [], message, batchId } = JSON.parse(body);
@@ -447,7 +428,7 @@ const httpServer = http.createServer(async (req, res) => {
 
         if (comments.length > 0) {
           const batch = comments.map(c => ({ ...c, submittedAt: entry.at }));
-          broadcastCommentJSON(session, { type: 'comments', comments: batch, batchId: batchId || null });
+          broadcast(session.commentClients,{ type: 'comments', comments: batch, batchId: batchId || null });
         }
       }
 
@@ -462,12 +443,8 @@ const httpServer = http.createServer(async (req, res) => {
 
   // Long-poll: wait for next message (session-aware)
   if (req.method === 'GET' && pathname === '/api/poll') {
-    const session = getSessionFromQuery(url);
-    if (!session) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
-      return;
-    }
+    const session = requireSession(url, res);
+    if (!session) return;
     if (session.messageQueue.length > 0) {
       const msg = session.messageQueue.shift();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -493,12 +470,8 @@ const httpServer = http.createServer(async (req, res) => {
 
   // Get all pending messages (session-aware)
   if (req.method === 'GET' && pathname === '/api/messages') {
-    const session = getSessionFromQuery(url);
-    if (!session) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing or invalid session parameter' }));
-      return;
-    }
+    const session = requireSession(url, res);
+    if (!session) return;
     const messages = session.messageQueue.splice(0);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ messages }));
@@ -735,18 +708,12 @@ function cleanup(exitCode = 0) {
   const shutdownMsg = JSON.stringify({ type: 'shutdown' });
 
   for (const [, session] of sessions) {
-    // Notify browser clients
-    for (const ws of session.terminalClients) {
-      try { if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg); } catch { /* closing */ }
-    }
-    for (const ws of session.commentClients) {
-      try { if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg); } catch { /* closing */ }
-    }
-    for (const ws of session.terminalClients) {
-      try { ws.close(1000, 'Mirror shutting down'); } catch { /* closed */ }
-    }
-    for (const ws of session.commentClients) {
-      try { ws.close(1000, 'Mirror shutting down'); } catch { /* closed */ }
+    // Notify and close browser clients
+    for (const ws of [...session.terminalClients, ...session.commentClients]) {
+      try {
+        if (ws.readyState === WebSocket.OPEN) ws.send(shutdownMsg);
+        ws.close(1000, 'Mirror shutting down');
+      } catch { /* closing */ }
     }
 
     // Flush waiting polls

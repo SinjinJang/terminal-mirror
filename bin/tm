@@ -45,7 +45,11 @@ case "${1:-}" in
     echo "  tm bash                   Wrap bash"
     echo "  tm vim file.txt           Wrap vim"
     echo "  tm start-server           Start mirror server (auto-discovers all sessions)"
+    echo "  tm start-server --spawn   Enable spawning new terminal sessions from web UI"
     echo "  tm start-server --remote  Start mirror server accessible on LAN"
+    echo "  tm start-server -p 8080   Start mirror server on a specific port"
+    echo "  tm start-server --no-auth Disable token authentication (auth is auto for --remote)"
+    echo "  tm start-server --open    Open browser automatically on server start"
     exit 0
     ;;
   *)
