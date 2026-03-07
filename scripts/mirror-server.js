@@ -761,6 +761,9 @@ async function start() {
   } else {
     process.stderr.write('\n\x1b[1;31m⚠ WARNING: Authentication is disabled (--no-auth).\n  Anyone with network access can view and control terminal sessions.\x1b[0m\n\n');
   }
+  if (remoteMode) {
+    process.stderr.write('\n\x1b[1;33m⚠ WARNING: Remote mode enabled (--remote).\n  Server is bound to 0.0.0.0 — accessible from any device on the network.\x1b[0m\n\n');
+  }
   process.stderr.write(`Terminal Mirror: ${url}\n`);
   await new Promise((resolve) => {
     qrTerminal.generate(url, { small: true }, (qr) => {
