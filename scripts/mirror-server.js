@@ -36,8 +36,11 @@ const MIME_TYPES = {
 function loadConfigFile() {
   const configPath = path.join(os.homedir(), '.config', 'terminal-mirror', 'config.json');
   try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch {
+    const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    process.stderr.write(`CONFIG=${configPath}\n`);
+    return data;
+  } catch (err) {
+    process.stderr.write(`Warning: config not loaded (${configPath}): ${err.code || err.message}\n`);
     return {};
   }
 }
