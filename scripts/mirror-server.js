@@ -34,15 +34,15 @@ const MIME_TYPES = {
 
 // ── Parse CLI args ──
 const rawArgs = process.argv.slice(2);
-let noOpen = false;
+let openBrowserFlag = false;
 let remoteMode = false;
 let customPort = null;
 let spawnSession = false;
 let noAuth = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
-  if (rawArgs[i] === '--no-open') {
-    noOpen = true;
+  if (rawArgs[i] === '--open') {
+    openBrowserFlag = true;
   } else if (rawArgs[i] === '--remote') {
     remoteMode = true;
   } else if (rawArgs[i] === '--spawn') {
@@ -810,7 +810,7 @@ async function start() {
   }
 
   // Open browser
-  if (!noOpen) {
+  if (openBrowserFlag) {
     openBrowser(url);
   }
 }
