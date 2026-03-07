@@ -13,7 +13,6 @@
   const MAX_SELECTED_TEXT = 500;
   const MAX_SELECTED_TEXT_DISPLAY = 80;
   const MAX_RECONNECT = 5;
-  const DISCONNECT_CLOSE_MS = 10000;
   const COMMENT_COLORS = ['#ff9e64', '#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff'];
   const SETTINGS_KEY = 'terminal-mirror-settings';
   const SESSION_REFRESH_MS = 5000;
@@ -929,7 +928,6 @@
   async function done() {
     if (!confirm('세션을 종료하시겠습니까?')) return;
     try { await authFetch('/api/done', { method: 'POST' }); } catch {}
-    window.close();
   }
 
   // ── Event listeners ──
@@ -1170,7 +1168,6 @@
     // Reset reconnect counters
     terminalReconnects = 0;
     commentReconnects = 0;
-    clearDisconnectTimer();
     serverShutdown = false;
 
     // Connect to new session
@@ -1222,28 +1219,12 @@
   let commentWs = null;
   let terminalReconnects = 0;
   let commentReconnects = 0;
-  let disconnectTimer = null;
   let serverShutdown = false;
-
-  function startDisconnectTimer() {
-    if (disconnectTimer || serverShutdown) return;
-    disconnectTimer = setTimeout(() => {
-      document.title = 'Disconnected \u2014 closing...';
-      window.close();
-      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:1.2em;">Session ended. You can close this tab.</div>';
-    }, DISCONNECT_CLOSE_MS);
-  }
-
-  function clearDisconnectTimer() {
-    if (disconnectTimer) { clearTimeout(disconnectTimer); disconnectTimer = null; }
-  }
 
   function handleShutdown() {
     serverShutdown = true;
-    clearDisconnectTimer();
     if (sessionRefreshTimer) { clearInterval(sessionRefreshTimer); sessionRefreshTimer = null; }
-    window.close();
-    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:1.2em;">Session ended. You can close this tab.</div>';
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:1.2em;">Server stopped. You can close this tab.</div>';
   }
 
   function connectTerminalWs() {
@@ -1258,7 +1239,6 @@
     terminalWs.onopen = () => {
       wsStatus.style.background = '#9ece6a';
       terminalReconnects = 0;
-      clearDisconnectTimer();
     };
 
     terminalWs.onmessage = (e) => {
@@ -1291,7 +1271,6 @@
       if (serverShutdown) return;
       // Only reconnect if we're still on the same session
       if (currentSessionPid !== sessionPidAtConnect) return;
-      startDisconnectTimer();
       terminalReconnects++;
       if (terminalReconnects <= MAX_RECONNECT) {
         const delay = Math.min(2000 * Math.pow(2, terminalReconnects - 1), 30000);
