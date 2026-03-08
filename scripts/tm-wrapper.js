@@ -261,7 +261,10 @@ function handleClientMessage(msg) {
       }
       break;
     case 'resize':
-      // Mirror can request resize (optional, wrapper owns the real terminal size)
+      if (msg.cols > 0 && msg.rows > 0 && ptyProcess) {
+        ptyProcess.resize(msg.cols, msg.rows);
+        broadcastToMirrors({ type: 'resize', cols: msg.cols, rows: msg.rows });
+      }
       break;
   }
 }

@@ -25,6 +25,7 @@
     <div class="settings-wrapper">
       <button class="btn btn-settings" id="settingsBtn" title="Terminal Settings">&#9881;</button>
       <div class="settings-panel" id="settingsPanel">
+        <div class="settings-section-label">Display</div>
         <div class="settings-group">
           <div class="settings-label">Font Size <span class="settings-value" id="fontSizeValue">13</span></div>
           <input class="settings-range" type="range" id="fontSizeRange" min="10" max="24" step="1" value="13">
@@ -36,6 +37,15 @@
         <div class="settings-group">
           <div class="settings-label">Scrollback</div>
           <input class="settings-input" type="number" id="scrollbackInput" min="1000" max="100000" step="1000" value="50000">
+        </div>
+        <div class="settings-section-label">Terminal</div>
+        <div class="settings-group">
+          <div class="settings-label">Cols <span class="settings-value" id="colsValue">-</span></div>
+          <input class="settings-input" type="number" id="colsInput" min="1" max="400" step="1" value="80">
+        </div>
+        <div class="settings-group">
+          <div class="settings-label">Rows <span class="settings-value" id="rowsValue">-</span></div>
+          <input class="settings-input" type="number" id="rowsInput" min="1" max="200" step="1" value="24">
         </div>
         <div class="settings-actions">
           <button class="popup-btn cancel" id="settingsReset">Reset to Defaults</button>

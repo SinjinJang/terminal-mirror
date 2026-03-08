@@ -633,6 +633,8 @@ httpServer.on('upgrade', (request, socket, head) => {
           const data = JSON.parse(msg.toString());
           if (data.type === 'input' && data.data) {
             sendToWrapper(session, { type: 'input', data: data.data });
+          } else if (data.type === 'resize' && data.cols > 0 && data.rows > 0) {
+            sendToWrapper(session, { type: 'resize', cols: data.cols, rows: data.rows });
           }
         } catch { /* ignore malformed WebSocket message */ }
       });

@@ -89,6 +89,17 @@ body {
 
 .settings-panel.open { display: block; }
 
+.settings-section-label {
+  font-size: 10px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.settings-section-label:not(:first-child) { margin-top: 12px; }
+
 .settings-group { margin-bottom: 12px; }
 .settings-group:last-of-type { margin-bottom: 8px; }
 
