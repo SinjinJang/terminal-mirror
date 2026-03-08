@@ -144,25 +144,19 @@
     if (!xterm) return [];
     const buf = xterm.buffer.active;
 
-    // Pass 1: merge wrapped lines (terminal-width line breaks → single logical line)
     const logical = [];
     for (let i = 0; i < buf.length; i++) {
       const line = buf.getLine(i);
       if (!line) { logical.push(''); continue; }
-      const text = line.translateToString(true);
-      if (line.isWrapped && logical.length > 0) {
-        logical[logical.length - 1] += text;
-      } else {
-        logical.push(text);
-      }
+      logical.push(line.translateToString(true));
     }
 
-    // Pass 2: trim trailing empty lines
+    // Trim trailing empty lines
     while (logical.length > 0 && logical[logical.length - 1] === '') {
       logical.pop();
     }
 
-    // Pass 3: collapse consecutive empty lines and deduplicate consecutive identical lines
+    // Collapse consecutive empty lines and deduplicate consecutive identical lines
     const result = [];
     let prevEmpty = false;
     let prevText = null;
