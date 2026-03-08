@@ -22,6 +22,7 @@
   let xterm = null;
   let fitAddon = null;
   let serverCols = null;
+  let serverRows = null;
   const knownBatchIds = new Set();
 
   // ── Session state ──
@@ -91,6 +92,10 @@
   const lineHeightRange = document.getElementById('lineHeightRange');
   const lineHeightValue = document.getElementById('lineHeightValue');
   const scrollbackInput = document.getElementById('scrollbackInput');
+  const colsInput = document.getElementById('colsInput');
+  const colsValue = document.getElementById('colsValue');
+  const rowsInput = document.getElementById('rowsInput');
+  const rowsValue = document.getElementById('rowsValue');
   const settingsReset = document.getElementById('settingsReset');
   const sessionSelect = document.getElementById('sessionSelect');
 
@@ -104,14 +109,30 @@
   let gutterDragging = false;
   let gutterAnchorRow = null;
 
-  // Fit terminal to container but constrain cols to server PTY width (desktop only)
+  // Fit terminal to container but constrain to server PTY dimensions
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
-    if (textViewEnabled) return; // text view handles its own layout
-    fitAddon.fit();
-    if (serverCols !== null && xterm.cols !== serverCols) {
-      xterm.resize(serverCols, xterm.rows);
+    if (serverCols !== null && serverRows !== null) {
+      xterm.resize(serverCols, serverRows);
+    } else if (!textViewEnabled) {
+      fitAddon.fit();
+      if (serverCols !== null && xterm.cols !== serverCols) {
+        xterm.resize(serverCols, xterm.rows);
+      }
     }
+    updateSizeDisplay();
+  }
+
+  function sendTerminalResize(cols, rows) {
+    if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
+    if (cols < 1 || rows < 1) return;
+    terminalWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+  }
+
+  function updateSizeDisplay() {
+    if (!xterm) return;
+    colsValue.textContent = xterm.cols;
+    rowsValue.textContent = xterm.rows;
   }
 
   // ── Text view mode (mobile) ──
@@ -946,6 +967,13 @@
     scrollbackInput.value = s.scrollback;
   }
 
+  function syncTerminalUI() {
+    if (!xterm) return;
+    colsInput.value = xterm.cols;
+    rowsInput.value = xterm.rows;
+    updateSizeDisplay();
+  }
+
   syncSettingsUI(currentSettings);
 
   settingsBtn.addEventListener('click', () => {
@@ -977,6 +1005,18 @@
     currentSettings.scrollback = v;
     applySettings(currentSettings);
     saveSettings(currentSettings);
+  });
+
+  colsInput.addEventListener('change', () => {
+    const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
+    colsInput.value = v;
+    sendTerminalResize(v, parseInt(rowsInput.value, 10) || 24);
+  });
+
+  rowsInput.addEventListener('change', () => {
+    const v = clampNum(parseInt(rowsInput.value, 10) || 24, 1, 200);
+    rowsInput.value = v;
+    sendTerminalResize(parseInt(colsInput.value, 10) || 80, v);
   });
 
   settingsReset.addEventListener('click', () => {
@@ -1208,7 +1248,9 @@
           if (msg.type === 'shutdown') { handleShutdown(); return; }
           if (msg.type === 'resize' && xterm) {
             serverCols = msg.cols;
+            serverRows = msg.rows;
             fitTerminal();
+            syncTerminalUI();
           }
           if (msg.type === 'wrapper_status') {
             updateWrapperStatus(msg.connected);
