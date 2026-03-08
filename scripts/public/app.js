@@ -193,7 +193,8 @@
 
   function setCursorVisible(visible) {
     if (!xterm) return;
-    xterm.options.cursorBlink = visible;
+    xterm.options.cursorStyle = visible ? 'block' : 'bar';
+    xterm.options.cursorWidth = visible ? undefined : 1;
     xterm.options.theme = { ...xterm.options.theme, cursor: visible ? '#e4e4e4' : 'rgba(0,0,0,0)' };
   }
 
@@ -227,7 +228,9 @@
       scrollback: currentSettings.scrollback,
       convertEol: false,
       disableStdin: false,
-      cursorBlink: false,
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      cursorWidth: 1,
     });
 
     fitAddon = new window.FitAddon.FitAddon();
