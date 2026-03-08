@@ -199,6 +199,12 @@
     }
   }
 
+  function setCursorVisible(visible) {
+    if (!xterm) return;
+    xterm.options.cursorBlink = visible;
+    xterm.options.theme = { ...xterm.options.theme, cursor: visible ? '#e4e4e4' : 'rgba(0,0,0,0)' };
+  }
+
   function setTextViewMode(enabled) {
     textViewEnabled = enabled;
     toggleViewBtn.classList.toggle('active', enabled);
@@ -206,10 +212,12 @@
       xtermContainer.style.display = 'none';
       textViewContainer.style.display = 'block';
       renderTextView();
+      setCursorVisible(false);
     } else {
       textViewContainer.style.display = 'none';
       xtermContainer.style.display = 'block';
       fitTerminal();
+      setCursorVisible(!!currentSessionPid);
     }
   }
 
@@ -1247,6 +1255,7 @@
     terminalWs.onopen = () => {
       wsStatus.style.background = '#9ece6a';
       terminalReconnects = 0;
+      if (!textViewEnabled) setCursorVisible(true);
     };
 
     terminalWs.onmessage = (e) => {
@@ -1269,6 +1278,7 @@
               showToast('Wrapper process exited (code ' + msg.exitCode + ')');
               if (xterm) { xterm.reset(); xterm.clear(); }
               // Auto-switch to another session after brief delay for server cleanup
+              setCursorVisible(false);
               setTimeout(async () => {
                 const sessions = await refreshSessions();
                 const other = sessions.find(s => s.pid !== currentSessionPid);
