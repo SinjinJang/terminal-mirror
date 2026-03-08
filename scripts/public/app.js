@@ -109,16 +109,14 @@
   let gutterDragging = false;
   let gutterAnchorRow = null;
 
-  // Fit terminal to container but constrain to server PTY dimensions
+  // Fit terminal to container but constrain cols to server PTY width
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
-    if (serverCols !== null && serverRows !== null) {
-      xterm.resize(serverCols, serverRows);
-    } else if (!textViewEnabled) {
+    if (!textViewEnabled) {
       fitAddon.fit();
-      if (serverCols !== null && xterm.cols !== serverCols) {
-        xterm.resize(serverCols, xterm.rows);
-      }
+    }
+    if (serverCols !== null && xterm.cols !== serverCols) {
+      xterm.resize(serverCols, xterm.rows);
     }
     updateSizeDisplay();
   }
