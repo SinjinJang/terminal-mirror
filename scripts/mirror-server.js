@@ -515,15 +515,21 @@ const httpServer = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'Spawn not enabled. Start server with --spawn option.' }));
       return;
     }
-    const shell = process.env.SHELL || (process.platform === 'win32' ? 'cmd.exe' : '/bin/sh');
+    const spawnCommand = config.spawnCommand;
+    if (!spawnCommand) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'spawnCommand not configured. Set "spawnCommand" in ~/.config/terminal-mirror/config.json' }));
+      return;
+    }
+    const spawnArgs = Array.isArray(spawnCommand) ? spawnCommand : spawnCommand.split(/\s+/);
     const wrapperScript = path.join(__dirname, 'tm-wrapper.js');
-    const child = spawnChild(process.execPath, [wrapperScript, shell], {
+    const child = spawnChild(process.execPath, [wrapperScript, ...spawnArgs], {
       cwd: os.homedir(),
       stdio: 'ignore',
     });
     spawnedChildren.set(child.pid, child);
     child.on('exit', () => spawnedChildren.delete(child.pid));
-    process.stderr.write(`Spawned terminal session (PID ${child.pid}): ${shell} in ${os.homedir()}\n`);
+    process.stderr.write(`Spawned terminal session (PID ${child.pid}): ${spawnArgs.join(' ')} in ${os.homedir()}\n`);
     // Wait briefly for wrapper to create its socket, then discover it
     setTimeout(() => discoverAndConnect(), 500);
     res.writeHead(200, { 'Content-Type': 'application/json' });

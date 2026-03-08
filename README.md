@@ -96,6 +96,8 @@ Default options for `start-server` can be set in `~/.config/terminal-mirror/conf
 | `remote` | boolean | Bind on `0.0.0.0` for LAN access |
 | `open` | boolean | Auto-open browser on start |
 | `spawn` | boolean | Enable spawning sessions from web UI |
+| `spawnCommand` | string \| string[] | Command to run for new sessions (e.g. `"bash"`, `["claude", "--model", "sonnet"]`) |
+
 | `noAuth` | boolean | Disable token authentication |
 
 ## Remote Access

@@ -1201,9 +1201,12 @@
           btn.disabled = false;
         }, 800);
       } else {
+        const data = await resp.json().catch(() => ({}));
+        alert(data.error || 'Failed to spawn session');
         btn.disabled = false;
       }
     } catch {
+      alert('Failed to spawn session');
       btn.disabled = false;
     }
   });
