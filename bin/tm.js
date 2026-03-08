@@ -49,12 +49,13 @@ if (subcommand === '-h' || subcommand === '--help' || subcommand === '') {
     '  tm start-server --spawn       Enable spawning new terminal sessions from web UI\n' +
     '  tm start-server --remote      Start mirror server accessible on LAN\n' +
     '  tm start-server -p 8080       Start mirror server on a specific port\n' +
-    '  tm start-server --no-auth     Disable token authentication (auth is auto for --remote)\n' +
+    '  tm start-server --no-auth     Disable authentication\n' +
     '  tm start-server --open        Open browser automatically on server start\n' +
     '\n' +
     'Config file: ~/.config/terminal-mirror/config.json\n' +
     '  Set default options for start-server (CLI flags override config).\n' +
-    '  Keys: port, remote, open, spawn, noAuth\n'
+    '  Keys: port, remote, open, spawn, noAuth, username, password\n' +
+    '  Set "username" and "password" to enable HTTP Basic Auth.\n'
   );
   process.exit(0);
 }

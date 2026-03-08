@@ -1,13 +1,5 @@
 (function() {
-  // ── Auth token from URL ──
   const urlParams = new URLSearchParams(window.location.search);
-  const authToken = urlParams.get('token') || '';
-
-  function authFetch(url, opts = {}) {
-    const h = { ...(opts.headers || {}) };
-    if (authToken) h['Authorization'] = 'Bearer ' + authToken;
-    return fetch(url, { ...opts, headers: h });
-  }
 
   // ── Constants ──
   const MAX_SELECTED_TEXT = 500;
@@ -706,61 +698,6 @@
       updateScrollBottomBtn();
     });
 
-    // ── File path link provider ──
-    var DIR_PATH_RE = /((?:~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]{1,10})(?::(\d+))?(?::(\d+))?/g;
-    var KNOWN_EXTS = 'ts|tsx|js|jsx|mjs|cjs|py|rb|rs|go|java|json|yaml|yml|toml|md|sh|css|scss|html|xml|vue|svelte|sql|c|h|cpp|hpp';
-    var STANDALONE_RE = new RegExp('(?:^|[\\s\'"(,:`])([\\w@.-]+\\.(?:' + KNOWN_EXTS + '))(?::(\\d+))?(?::(\\d+))?', 'gi');
-
-    function openFileLink(fp, ln) {
-      var params = new URLSearchParams({ path: fp });
-      if (ln > 0) params.set('line', String(ln));
-      if (authToken) params.set('token', authToken);
-      if (currentSessionPid) params.set('session', String(currentSessionPid));
-      window.open('/viewer.html?' + params.toString(), '_blank');
-    }
-
-    xterm.registerLinkProvider({
-      provideLinks: function(y, callback) {
-        var line = xterm.buffer.active.getLine(y - 1);
-        if (!line) { callback(undefined); return; }
-        var text = line.translateToString(true);
-        var links = [];
-        var taken = [];
-        var m;
-
-        DIR_PATH_RE.lastIndex = 0;
-        while ((m = DIR_PATH_RE.exec(text)) !== null) {
-          var fp = m[1], ln = m[2] ? parseInt(m[2], 10) : 0;
-          var prefStart = Math.max(0, m.index - 10);
-          if (/\w+:\/?$/.test(text.substring(prefStart, m.index))) continue;
-          if (fp.length < 3) continue;
-          taken.push([m.index, m.index + m[0].length]);
-          links.push({
-            range: { start: { x: m.index + 1, y: y }, end: { x: m.index + m[0].length, y: y } },
-            text: m[0],
-            decorations: { pointerCursor: true, underline: true },
-            activate: (function(f, l) { return function() { openFileLink(f, l); }; })(fp, ln),
-          });
-        }
-
-        STANDALONE_RE.lastIndex = 0;
-        while ((m = STANDALONE_RE.exec(text)) !== null) {
-          var pathIdx = m.index + m[0].indexOf(m[1]);
-          var fullLen = m[0].length - m[0].indexOf(m[1]);
-          var overlap = taken.some(function(r) { return pathIdx < r[1] && (pathIdx + fullLen) > r[0]; });
-          if (overlap) continue;
-          var fp2 = m[1], ln2 = m[2] ? parseInt(m[2], 10) : 0;
-          links.push({
-            range: { start: { x: pathIdx + 1, y: y }, end: { x: pathIdx + fullLen, y: y } },
-            text: m[1],
-            decorations: { pointerCursor: true, underline: true },
-            activate: (function(f, l) { return function() { openFileLink(f, l); }; })(fp2, ln2),
-          });
-        }
-
-        callback(links.length > 0 ? links : undefined);
-      },
-    });
   }
 
   // ── Badge + inline comment updates ──
@@ -912,7 +849,7 @@
     }
 
     const sessionQuery = currentSessionPid ? `?session=${currentSessionPid}` : '';
-    authFetch(`/api/submit${sessionQuery}`, {
+    fetch(`/api/submit${sessionQuery}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ comments: hasComments ? comments : [], message: message || undefined, batchId }),
@@ -934,8 +871,8 @@
   }
 
   async function done() {
-    if (!confirm('세션을 종료하시겠습니까?')) return;
-    try { await authFetch('/api/done', { method: 'POST' }); } catch {}
+    if (!confirm('Close the mirror server?')) return;
+    try { await fetch('/api/done', { method: 'POST' }); } catch {}
   }
 
   // ── Event listeners ──
@@ -1077,7 +1014,7 @@
 
   async function fetchSessions() {
     try {
-      const resp = await authFetch('/api/sessions');
+      const resp = await fetch('/api/sessions');
       if (!resp.ok) return [];
       const data = await resp.json();
       if (Array.isArray(data)) return data; // backward compat
@@ -1199,7 +1136,7 @@
     const btn = this;
     btn.disabled = true;
     try {
-      const resp = await authFetch('/api/spawn', { method: 'POST' });
+      const resp = await fetch('/api/spawn', { method: 'POST' });
       if (resp.ok) {
         const { pid } = await resp.json();
         // Wait for wrapper to initialize, then refresh and switch
@@ -1246,9 +1183,7 @@
       terminalWs = null;
     }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams();
-    if (authToken) params.set('token', authToken);
-    params.set('session', String(currentSessionPid));
+    const params = new URLSearchParams({ session: String(currentSessionPid) });
     terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal?${params.toString()}`);
     terminalWs.binaryType = 'arraybuffer';
 
@@ -1316,9 +1251,7 @@
       commentWs = null;
     }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams();
-    if (authToken) params.set('token', authToken);
-    params.set('session', String(currentSessionPid));
+    const params = new URLSearchParams({ session: String(currentSessionPid) });
     commentWs = new WebSocket(`${proto}//${location.host}/ws/comments?${params.toString()}`);
 
     commentWs.onopen = () => {

@@ -26,14 +26,14 @@ fi
 node "${CLAUDE_PLUGIN_ROOT}/scripts/mirror-server.js" --no-open [--remote]
 ```
 
-5. Wait 2 seconds, then read the TaskOutput to get the PORT and TOKEN from stderr output. Parse `PORT=<number>` and `TOKEN=<hex>` lines.
+5. Wait 2 seconds, then read the TaskOutput to get the PORT from stderr output. Parse `PORT=<number>` line.
 
-6. Report the URL to the user: `http://localhost:<PORT>?token=<TOKEN>` (or `http://<LAN_IP>:<PORT>?token=<TOKEN>` in remote mode)
+6. Report the URL to the user: `http://localhost:<PORT>` (or `http://<LAN_IP>:<PORT>` in remote mode)
 
 7. Start a long-poll loop in the background with `run_in_background: true`. You need a session PID — fetch sessions first:
 ```bash
-SESSION_PID=$(curl -s -H "Authorization: Bearer <TOKEN>" http://localhost:<PORT>/api/sessions | jq -r '.[0].pid')
-curl -s -H "Authorization: Bearer <TOKEN>" "http://localhost:<PORT>/api/poll?session=$SESSION_PID"
+SESSION_PID=$(curl -s http://localhost:<PORT>/api/sessions | jq -r '.[0].pid')
+curl -s "http://localhost:<PORT>/api/poll?session=$SESSION_PID"
 ```
 
 8. When a poll response arrives (JSON with `text` field), present it to the user and loop back to step 7.
@@ -46,5 +46,5 @@ curl -s -H "Authorization: Bearer <TOKEN>" "http://localhost:<PORT>/api/poll?ses
 - New sessions started after the server are discovered automatically within 5 seconds
 - The web UI provides a session selector dropdown to switch between sessions
 - Use `--remote` to bind on `0.0.0.0` and output LAN IP URL for access from other devices on the network
-- Remote mode relaxes origin checks but still requires token authentication
+- Remote mode relaxes origin checks; configure username/password in config.json for Basic Auth
 - The CLI command is `tm start-server`, but the skill name remains `mirror` for backward compatibility

@@ -86,7 +86,8 @@ Default options for `start-server` can be set in `~/.config/terminal-mirror/conf
   "remote": true,
   "open": true,
   "spawn": false,
-  "noAuth": false
+  "username": "admin",
+  "password": "secret"
 }
 ```
 
@@ -97,8 +98,9 @@ Default options for `start-server` can be set in `~/.config/terminal-mirror/conf
 | `open` | boolean | Auto-open browser on start |
 | `spawn` | boolean | Enable spawning sessions from web UI |
 | `spawnCommand` | string \| string[] | Command to run for new sessions (e.g. `"bash"`, `["claude", "--model", "sonnet"]`) |
-
-| `noAuth` | boolean | Disable token authentication |
+| `username` | string | HTTP Basic Auth username |
+| `password` | string | HTTP Basic Auth password |
+| `noAuth` | boolean | Disable authentication |
 
 ## Remote Access
 
@@ -106,13 +108,13 @@ Use `--remote` to allow access from other devices on your LAN/VPN:
 
 ```bash
 tm start-server --remote
-# Terminal Mirror: http://192.168.1.100:3456?token=abc123...
+# Terminal Mirror: http://192.168.1.100:3456
 ```
 
 - Binds on `0.0.0.0` instead of `127.0.0.1`
 - Outputs LAN IP in the URL
 - Relaxes CORS/WebSocket origin checks
-- Token authentication still required
+- Basic Auth required when `username`/`password` are configured
 
 ## Web UI Features
 
@@ -123,16 +125,16 @@ tm start-server --remote
 - **Replay buffer** — 64KB per-session replay buffer sends recent output instantly on session switch
 - **Inline comments** — Select text, click the float button, add comments (GitHub-style)
 - **Line selection** — Click/drag the gutter to select line ranges
-- **File viewer** — Clickable file paths open a syntax-highlighted viewer
 - **Settings** — Adjustable font size, line height, and scrollback buffer
 - **Message bar** — Send messages to the running terminal session
 
 ## Authentication
 
-1. Each wrapper generates a 32-byte random token at startup, written to `/tmp/tm-<PID>.token` (mode `0600`)
-2. Mirror server generates its own master token for client authentication
-3. Clients authenticate via `?token=<TOKEN>` query param or `Authorization: Bearer <TOKEN>` header
-4. Token comparison uses `crypto.timingSafeEqual()` to prevent timing attacks
+1. Each wrapper generates a 32-byte random token at startup, written to `/tmp/tm-<PID>.token` (mode `0600`) for inter-process auth
+2. Mirror server uses HTTP Basic Auth when `username` and `password` are set in `config.json`
+3. Browser prompts for credentials automatically; credentials are sent on all HTTP and WebSocket requests
+4. Credential comparison uses `crypto.timingSafeEqual()` to prevent timing attacks
+5. Use `--no-auth` to disable authentication entirely
 
 ## API Endpoints
 
@@ -144,11 +146,10 @@ tm start-server --remote
 | `GET` | `/api/poll?session=<PID>` | Long-poll for submitted messages (120s timeout) |
 | `GET` | `/api/messages?session=<PID>` | Get all pending messages (non-blocking) |
 | `POST` | `/api/done` | Shutdown mirror server |
-| `GET` | `/api/file?session=<PID>&path=<PATH>` | Read file content (max 2MB) |
 | `WS` | `/ws/terminal?session=<PID>` | Live terminal data (binary + JSON) |
 | `WS` | `/ws/comments?session=<PID>` | Comment broadcast stream |
 
-All `/api/` and WebSocket endpoints require token authentication. Session-specific endpoints require a `session=<PID>` query parameter to identify the target wrapper.
+All endpoints require HTTP Basic Auth when credentials are configured. Session-specific endpoints require a `session=<PID>` query parameter to identify the target wrapper.
 
 ## Windows Support
 

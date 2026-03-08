@@ -19,7 +19,6 @@ const START_PORT = 3456;
 const MAX_PORT_SCAN = 100;
 const POLL_TIMEOUT_MS = 120_000;
 const MAX_BODY_BYTES = 1 * 1024 * 1024;
-const MAX_FILE_READ_BYTES = 2 * 1024 * 1024;
 const MAX_SELECTED_TEXT = 80;
 const MAX_MESSAGE_QUEUE = 100;
 const SOCKET_RECONNECT_MS = 3000;
@@ -54,7 +53,6 @@ let remoteMode = false;
 let customPort = null;
 let spawnSession = false;
 let noAuth = false;
-let hasCliAuth = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === '--open') {
@@ -65,7 +63,6 @@ for (let i = 0; i < rawArgs.length; i++) {
     spawnSession = true;
   } else if (rawArgs[i] === '--no-auth') {
     noAuth = true;
-    hasCliAuth = true;
   } else if ((rawArgs[i] === '--port' || rawArgs[i] === '-p') && rawArgs[i + 1]) {
     customPort = parseInt(rawArgs[++i], 10);
     if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
@@ -86,11 +83,8 @@ if (customPort == null && config.port != null) {
     process.exit(1);
   }
 }
-if (!hasCliAuth && config.noAuth != null) {
+if (config.noAuth != null && !noAuth) {
   noAuth = !!config.noAuth;
-} else if (!hasCliAuth) {
-  // Default: no auth for local mode, auth required for remote mode
-  noAuth = !remoteMode;
 }
 
 // ── Dependency: ws ──
@@ -103,11 +97,22 @@ try {
   process.exit(1);
 }
 
+// ── Basic Auth credentials from config ──
+const authUsername = config.username || null;
+const authPassword = config.password || null;
+const authEnabled = !noAuth && authUsername && authPassword;
+
+if (!noAuth && !authEnabled) {
+  process.stderr.write('Error: Authentication required but no credentials configured.\n');
+  process.stderr.write('Set "username" and "password" in ~/.config/terminal-mirror/config.json,\n');
+  process.stderr.write('or use --no-auth to disable authentication.\n');
+  process.exit(1);
+}
+
 // ── State ──
 const sessions = new Map(); // keyed by wrapper PID
 const spawnedChildren = new Map(); // PID → child process (spawned via --spawn)
 let serverPort = null;
-const masterToken = crypto.randomBytes(24).toString('hex');
 let scanTimer = null;
 
 function createSession(pid, ipcPath) {
@@ -353,23 +358,28 @@ function readBody(req) {
   });
 }
 
-// ── Auth helpers ──
-function isValidToken(candidate) {
-  if (!candidate || candidate.length !== masterToken.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(masterToken));
-}
-
-function extractToken(req) {
+// ── Auth helpers (HTTP Basic Auth) ──
+function checkBasicAuth(req) {
+  if (!authEnabled) return true;
   const authHeader = req.headers['authorization'] || '';
-  if (authHeader.startsWith('Bearer ')) {
-    return authHeader.slice(7);
-  }
-  const url = new URL(req.url, 'http://localhost');
-  return url.searchParams.get('token') || '';
+  if (!authHeader.startsWith('Basic ')) return false;
+  const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
+  const sep = decoded.indexOf(':');
+  if (sep === -1) return false;
+  const user = decoded.substring(0, sep);
+  const pass = decoded.substring(sep + 1);
+  const userMatch = user.length === authUsername.length &&
+    crypto.timingSafeEqual(Buffer.from(user), Buffer.from(authUsername));
+  const passMatch = pass.length === authPassword.length &&
+    crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(authPassword));
+  return userMatch && passMatch;
 }
 
 function rejectUnauthorized(res) {
-  res.writeHead(401, { 'Content-Type': 'application/json' });
+  res.writeHead(401, {
+    'Content-Type': 'application/json',
+    'WWW-Authenticate': 'Basic realm="Terminal Mirror"',
+  });
   res.end(JSON.stringify({ error: 'Unauthorized' }));
 }
 
@@ -387,12 +397,10 @@ const httpServer = http.createServer(async (req, res) => {
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  // Token validation gate for /api/ routes
-  if (pathname.startsWith('/api/') && !noAuth) {
-    if (!isValidToken(extractToken(req))) {
-      rejectUnauthorized(res);
-      return;
-    }
+  // Auth gate: Basic Auth for all /api/ routes and static files
+  if (authEnabled && !checkBasicAuth(req)) {
+    rejectUnauthorized(res);
+    return;
   }
 
   // Sessions list endpoint
@@ -545,43 +553,6 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  // File viewer endpoint (session-aware)
-  if (req.method === 'GET' && pathname === '/api/file') {
-    const session = getSessionFromQuery(url);
-    const cwd = session ? session.wrapperInfo.cwd : process.cwd();
-    let filePath = url.searchParams.get('path');
-    if (!filePath) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing path parameter' }));
-      return;
-    }
-    if (filePath.startsWith('~/')) {
-      filePath = path.join(os.homedir(), filePath.slice(2));
-    }
-    const resolved = path.resolve(cwd, filePath);
-    try {
-      const stat = fs.statSync(resolved);
-      if (!stat.isFile()) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Not a file' }));
-        return;
-      }
-      if (stat.size > MAX_FILE_READ_BYTES) {
-        res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'File too large (>2MB)' }));
-        return;
-      }
-      const content = fs.readFileSync(resolved, 'utf-8');
-      const relativePath = path.relative(cwd, resolved);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ path: resolved, relativePath, content }));
-    } catch {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'File not found' }));
-    }
-    return;
-  }
-
   // Serve static files from public directory
   if (req.method === 'GET') {
     const requestedFile = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -619,13 +590,10 @@ httpServer.on('upgrade', (request, socket, head) => {
   }
 
   const upgradeUrl = new URL(request.url, 'http://localhost');
-  if (!noAuth) {
-    const wsToken = upgradeUrl.searchParams.get('token') || '';
-    if (!isValidToken(wsToken)) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      socket.destroy();
-      return;
-    }
+  if (authEnabled && !checkBasicAuth(request)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm="Terminal Mirror"\r\n\r\n');
+    socket.destroy();
+    return;
   }
 
   const pathname = upgradeUrl.pathname;
@@ -788,14 +756,11 @@ async function start() {
   } else {
     serverPort = await listenOnAvailablePort(httpServer, START_PORT, MAX_PORT_SCAN, bindAddr);
   }
-  const tokenQuery = noAuth ? '' : `?token=${masterToken}`;
   const host = remoteMode ? getLocalIP() : 'localhost';
-  const url = `http://${host}:${serverPort}${tokenQuery}`;
+  const url = `http://${host}:${serverPort}`;
   process.stderr.write(`PORT=${serverPort}\n`);
-  if (!noAuth) {
-    process.stderr.write(`TOKEN=${masterToken}\n`);
-  } else {
-    process.stderr.write('\n\x1b[1;31m⚠ WARNING: Authentication is disabled (--no-auth).\n  Anyone with network access can view and control terminal sessions.\x1b[0m\n\n');
+  if (!authEnabled) {
+    process.stderr.write('\n\x1b[1;31m⚠ WARNING: Authentication is disabled.\n  Set "username" and "password" in ~/.config/terminal-mirror/config.json to enable.\x1b[0m\n\n');
   }
   if (remoteMode) {
     process.stderr.write('\n\x1b[1;33m⚠ WARNING: Remote mode enabled (--remote).\n  Server is bound to 0.0.0.0 — accessible from any device on the network.\x1b[0m\n\n');

@@ -57,12 +57,13 @@ case "${1:-}" in
     echo "  tm start-server --spawn       Enable spawning new terminal sessions from web UI"
     echo "  tm start-server --remote      Start mirror server accessible on LAN"
     echo "  tm start-server -p 8080       Start mirror server on a specific port"
-    echo "  tm start-server --no-auth     Disable token authentication (auth is auto for --remote)"
+    echo "  tm start-server --no-auth     Disable authentication"
     echo "  tm start-server --open        Open browser automatically on server start"
     echo ""
     echo "Config file: ~/.config/terminal-mirror/config.json"
     echo "  Set default options for start-server (CLI flags override config)."
-    echo "  Keys: port, remote, open, spawn, noAuth"
+    echo "  Keys: port, remote, open, spawn, noAuth, username, password"
+    echo "  Set \"username\" and \"password\" to enable HTTP Basic Auth."
     exit 0
     ;;
   *)
