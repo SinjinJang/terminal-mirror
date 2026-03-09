@@ -121,7 +121,7 @@ function createSession(pid, ipcPath) {
     sockPath: ipcPath,
     socket: null,
     connected: false,
-    wrapperInfo: { cwd: process.cwd(), cols: 80, rows: 24, pid, cmd: '', startedAt: null },
+    wrapperInfo: { cwd: process.cwd(), cols: 80, rows: 24, pid, cmd: '', startedAt: null, label: null },
     wrapperToken: null,
     lineBuf: '',
     reconnects: 0,
@@ -272,6 +272,7 @@ function handleWrapperMessage(session, msg) {
         pid: msg.pid || session.pid,
         cmd: msg.cmd || '',
         startedAt: msg.startedAt || null,
+        label: msg.label || session.wrapperInfo.label || null,
       };
       if (msg.token && !session.wrapperToken) {
         session.wrapperToken = msg.token;
@@ -413,6 +414,7 @@ const httpServer = http.createServer(async (req, res) => {
         cwd: session.wrapperInfo.cwd,
         startedAt: session.wrapperInfo.startedAt,
         connected: session.connected,
+        label: session.wrapperInfo.label || null,
       });
     }
     // Sort by startedAt descending (most recent first)
@@ -424,6 +426,23 @@ const httpServer = http.createServer(async (req, res) => {
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ sessions: list, spawnEnabled: spawnSession }));
+    return;
+  }
+
+  // Rename session label
+  if (req.method === 'POST' && pathname === '/api/sessions/label') {
+    const session = requireSession(url, res);
+    if (!session) return;
+    try {
+      const body = await readBody(req);
+      const { label } = JSON.parse(body);
+      session.wrapperInfo.label = (typeof label === 'string' && label.trim()) ? label.trim().substring(0, 50) : null;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, label: session.wrapperInfo.label }));
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid request' }));
+    }
     return;
   }
 

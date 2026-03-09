@@ -97,7 +97,7 @@
   const rowsInput = document.getElementById('rowsInput');
   const rowsValue = document.getElementById('rowsValue');
   const settingsReset = document.getElementById('settingsReset');
-  const sessionSelect = document.getElementById('sessionSelect');
+  const sessionTabsInner = document.getElementById('sessionTabsInner');
 
   // ── xterm.js setup ──
   let lastMousePos = { x: 0, y: 0 };
@@ -1060,40 +1060,106 @@
   }
 
   function formatSessionLabel(s) {
-    const cmd = s.cmd || 'unknown';
-    const status = s.connected ? '' : ' (disconnected)';
-    return `PID ${s.pid}: ${cmd}${status}`;
+    if (s.label) return s.label;
+    const cmd = (s.cmd || 'unknown').split('/').pop().split(' ')[0];
+    const cwdName = s.cwd ? s.cwd.replace(/^.*\//, '') || '/' : '';
+    const time = s.startedAt ? new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const parts = [cmd];
+    if (cwdName) parts.push(cwdName);
+    if (time) parts.push(time);
+    return parts.join(' \u00b7 ');
   }
 
-  function updateSessionSelect(sessionsList) {
-    const prevValue = sessionSelect.value;
-    sessionSelect.innerHTML = '';
+  let renamingTabPid = null;
+
+  function updateSessionTabs(sessionsList) {
+    if (renamingTabPid !== null) return;
+    sessionTabsInner.innerHTML = '';
 
     if (sessionsList.length === 0) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'No sessions';
-      sessionSelect.appendChild(opt);
+      const empty = document.createElement('span');
+      empty.className = 'session-no-tabs';
+      empty.textContent = 'No sessions';
+      sessionTabsInner.appendChild(empty);
       return;
     }
 
     for (const s of sessionsList) {
-      const opt = document.createElement('option');
-      opt.value = String(s.pid);
-      opt.textContent = formatSessionLabel(s);
-      if (!s.connected) opt.className = 'disconnected';
-      sessionSelect.appendChild(opt);
+      const tab = document.createElement('button');
+      tab.className = 'session-tab';
+      tab.dataset.pid = String(s.pid);
+      if (currentSessionPid === s.pid) tab.classList.add('active');
+      if (!s.connected) tab.classList.add('disconnected');
+
+      const dot = document.createElement('span');
+      dot.className = 'session-tab-dot';
+      tab.appendChild(dot);
+
+      const label = document.createElement('span');
+      label.className = 'session-tab-label';
+      label.textContent = formatSessionLabel(s);
+      tab.appendChild(label);
+
+      tab.addEventListener('click', () => {
+        const pid = parseInt(tab.dataset.pid, 10);
+        if (!isNaN(pid)) switchToSession(pid);
+      });
+
+      tab.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        startTabRename(tab, s);
+      });
+
+      tab.title = `${s.cmd || 'unknown'}\n${s.cwd || ''}\nDouble-click to rename`;
+
+      sessionTabsInner.appendChild(tab);
     }
 
-    // Restore previous selection if still valid
-    if (prevValue && sessionsList.some(s => String(s.pid) === prevValue)) {
-      sessionSelect.value = prevValue;
+    // Scroll active tab into view
+    const activeTab = sessionTabsInner.querySelector('.session-tab.active');
+    if (activeTab) activeTab.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }
+
+  function startTabRename(tab, session) {
+    const labelEl = tab.querySelector('.session-tab-label');
+    if (!labelEl || tab.querySelector('.session-tab-label-input')) return;
+
+    renamingTabPid = session.pid;
+
+    const input = document.createElement('input');
+    input.className = 'session-tab-label-input';
+    input.value = session.label || '';
+    input.placeholder = formatSessionLabel({ ...session, label: null });
+
+    labelEl.style.display = 'none';
+    tab.insertBefore(input, labelEl.nextSibling);
+    input.focus();
+    input.select();
+
+    function finish() {
+      if (renamingTabPid !== session.pid) return;
+      renamingTabPid = null;
+      const newLabel = input.value.trim();
+      input.remove();
+      labelEl.style.display = '';
+
+      fetch(`/api/sessions/label?session=${session.pid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: newLabel || null }),
+      }).then(() => refreshSessions()).catch(() => {});
     }
+
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.value = session.label || ''; input.blur(); }
+    });
   }
 
   async function refreshSessions() {
     const sessionsList = await fetchSessions();
-    updateSessionSelect(sessionsList);
+    updateSessionTabs(sessionsList);
 
     // If we have no current session, auto-select
     if (!currentSessionPid && sessionsList.length > 0) {
@@ -1102,8 +1168,6 @@
         ? urlSession
         : sessionsList[0].pid;
       switchToSession(target);
-    } else if (currentSessionPid) {
-      sessionSelect.value = String(currentSessionPid);
     }
 
     return sessionsList;
@@ -1142,8 +1206,12 @@
 
     // Update state
     currentSessionPid = pid;
-    sessionSelect.value = String(pid);
     updateUrlSession(pid);
+
+    // Highlight active tab
+    for (const tab of sessionTabsInner.querySelectorAll('.session-tab')) {
+      tab.classList.toggle('active', tab.dataset.pid === String(pid));
+    }
 
     // Reset reconnect counters
     terminalReconnects = 0;
@@ -1191,12 +1259,6 @@
     }
   });
 
-  sessionSelect.addEventListener('change', () => {
-    const pid = parseInt(sessionSelect.value, 10);
-    if (!isNaN(pid)) {
-      switchToSession(pid);
-    }
-  });
 
   // ── WebSocket connections ──
   let commentWs = null;

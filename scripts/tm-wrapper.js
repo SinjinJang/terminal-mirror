@@ -17,12 +17,21 @@ const SIGINT_FORCE_CLEANUP_MS = 3000;
 
 // ── Parse CLI args ──
 const rawArgs = process.argv.slice(2);
-if (rawArgs.length === 0) {
-  process.stderr.write('Usage: tm exec <command> [args...]\n');
+let sessionLabel = null;
+const filteredArgs = [];
+for (let i = 0; i < rawArgs.length; i++) {
+  if ((rawArgs[i] === '--name' || rawArgs[i] === '-n') && i + 1 < rawArgs.length) {
+    sessionLabel = rawArgs[++i];
+  } else {
+    filteredArgs.push(rawArgs[i]);
+  }
+}
+if (filteredArgs.length === 0) {
+  process.stderr.write('Usage: tm exec [--name <label>] <command> [args...]\n');
   process.stderr.write('Examples:\n');
   process.stderr.write('  tm exec claude --model sonnet\n');
   process.stderr.write('  tm exec bash\n');
-  process.stderr.write('  tm exec vim file.txt\n');
+  process.stderr.write('  tm exec --name "my project" bash\n');
   process.exit(1);
 }
 
@@ -42,10 +51,10 @@ try {
 let command, commandArgs;
 if (IS_WIN) {
   command = 'cmd.exe';
-  commandArgs = ['/c', ...rawArgs];
+  commandArgs = ['/c', ...filteredArgs];
 } else {
-  command = rawArgs[0];
-  commandArgs = rawArgs.slice(1);
+  command = filteredArgs[0];
+  commandArgs = filteredArgs.slice(1);
 }
 
 // ── Terminal dimensions ──
@@ -199,6 +208,7 @@ function startSocketServer() {
       cmd: [command, ...commandArgs].join(' '),
       startedAt,
       token: authToken,
+      label: sessionLabel,
     });
 
     // Send scrollback history

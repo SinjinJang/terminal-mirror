@@ -44,6 +44,7 @@ if (subcommand === '-h' || subcommand === '--help' || subcommand === '') {
     'Examples:\n' +
     '  tm exec claude --model sonnet  Wrap Claude with terminal mirror support\n' +
     '  tm exec bash                   Wrap bash\n' +
+    '  tm exec --name "work" bash     Wrap bash with a custom label\n' +
     '  tm exec vim file.txt           Wrap vim\n' +
     '  tm start-server               Start mirror server (auto-discovers all sessions)\n' +
     '  tm start-server --spawn       Enable spawning new terminal sessions from web UI\n' +

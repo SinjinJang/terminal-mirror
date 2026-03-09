@@ -16,11 +16,11 @@
     <span class="ws-status wrapper-status" id="wrapperStatus" title="Wrapper"></span>
   </div>
   <div class="header-actions">
-    <select class="session-select" id="sessionSelect" title="Switch session">
-      <option value="">No sessions</option>
-    </select>
+    <div class="session-tabs" id="sessionTabs">
+      <div class="session-tabs-inner" id="sessionTabsInner"></div>
+      <button class="btn-spawn tab-spawn-btn" id="spawnSessionBtn" title="New terminal session" style="display:none">+</button>
+    </div>
     <button class="btn-refresh" id="refreshSessionsBtn" title="Refresh sessions">&#x21bb;</button>
-    <button class="btn-spawn" id="spawnSessionBtn" title="New terminal session" style="display:none">+</button>
     <button class="btn btn-toggle-view" id="toggleViewBtn" title="Toggle text view">Aa</button>
     <div class="settings-wrapper">
       <button class="btn btn-settings" id="settingsBtn" title="Terminal Settings">&#9881;</button>

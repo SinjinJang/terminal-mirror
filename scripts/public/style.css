@@ -142,34 +142,111 @@ body {
   margin-top: 4px;
 }
 
-/* Session selector */
-.session-select {
-  margin-left: 0;
-  background: #1a1a1a;
-  color: #e4e4e4;
-  border: 1px solid #3a3a3a;
-  border-radius: 5px;
-  padding: 4px 8px;
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  outline: none;
-  max-width: 280px;
+/* Session tabs */
+.session-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
   min-width: 0;
   flex-shrink: 1;
-  transition: border-color 0.15s;
+  overflow: hidden;
 }
 
-.session-select:focus { border-color: #7aa2f7; }
-.session-select:hover { border-color: #555; }
+.session-tabs-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  min-width: 0;
+}
 
-.session-select option {
+.session-tabs-inner::-webkit-scrollbar { display: none; }
+
+.session-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
   background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #888;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+}
+
+.session-tab:hover { background: #222; border-color: #444; color: #ccc; }
+
+.session-tab.active {
+  background: #1e2a3a;
+  border-color: #7aa2f7;
   color: #e4e4e4;
 }
 
-.session-select option.disconnected {
-  color: #666;
+.session-tab.disconnected { opacity: 0.45; }
+
+.session-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9ece6a;
+  flex-shrink: 0;
+}
+
+.session-tab.disconnected .session-tab-dot { background: #555; }
+
+.session-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tab-label-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #7aa2f7;
+  color: #e4e4e4;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 0;
+  width: 100px;
+  outline: none;
+}
+
+.tab-spawn-btn {
+  margin-left: 2px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #9ece6a;
+  font-size: 14px;
+  font-weight: bold;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.tab-spawn-btn:hover { color: #fff; border-color: #9ece6a; background: rgba(158,206,106,0.15); }
+.tab-spawn-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.session-no-tabs {
+  font-size: 11px;
+  color: #555;
+  padding: 4px 8px;
+  white-space: nowrap;
 }
 
 .btn-refresh {
@@ -192,25 +269,6 @@ body {
 .btn-refresh.spinning { animation: spin 0.6s linear; pointer-events: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.btn-spawn {
-  margin-left: 0;
-  background: transparent;
-  border: 1px solid #333;
-  color: #9ece6a;
-  font-size: 16px;
-  font-weight: bold;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-.btn-spawn:hover { color: #fff; border-color: #9ece6a; background: rgba(158,206,106,0.15); }
-.btn-spawn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Main layout */
 .main {
@@ -753,9 +811,10 @@ kbd {
   .header-title {
     font-size: 13px;
   }
-  .session-select {
-    max-width: 160px;
-    font-size: 11px;
+  .session-tab {
+    max-width: 150px;
+    font-size: 10px;
+    padding: 3px 8px;
   }
   .keyboard-hint {
     display: none;
