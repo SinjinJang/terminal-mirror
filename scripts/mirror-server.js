@@ -24,6 +24,7 @@ const MAX_MESSAGE_QUEUE = 100;
 const SOCKET_RECONNECT_MS = 3000;
 const SOCKET_RECONNECT_MAX = 10;
 const SESSION_SCAN_INTERVAL_MS = 5000;
+const MAX_LABEL_LENGTH = 50;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -272,7 +273,7 @@ function handleWrapperMessage(session, msg) {
         pid: msg.pid || session.pid,
         cmd: msg.cmd || '',
         startedAt: msg.startedAt || null,
-        label: msg.label || session.wrapperInfo.label || null,
+        label: session.wrapperInfo.label || msg.label || null,
       };
       if (msg.token && !session.wrapperToken) {
         session.wrapperToken = msg.token;
@@ -436,7 +437,8 @@ const httpServer = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const { label } = JSON.parse(body);
-      session.wrapperInfo.label = (typeof label === 'string' && label.trim()) ? label.trim().substring(0, 50) : null;
+      const trimmed = typeof label === 'string' ? label.trim() : '';
+      session.wrapperInfo.label = trimmed ? trimmed.substring(0, MAX_LABEL_LENGTH) : null;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, label: session.wrapperInfo.label }));
     } catch {

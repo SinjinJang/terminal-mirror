@@ -1071,9 +1071,13 @@
   }
 
   let renamingTabPid = null;
+  let lastSessionsKey = '';
 
   function updateSessionTabs(sessionsList) {
     if (renamingTabPid !== null) return;
+    const key = sessionsList.map(s => `${s.pid}:${s.connected}:${s.label || ''}`).join('|');
+    if (key === lastSessionsKey) return;
+    lastSessionsKey = key;
     sessionTabsInner.innerHTML = '';
 
     if (sessionsList.length === 0) {
@@ -1143,11 +1147,14 @@
       input.remove();
       labelEl.style.display = '';
 
-      fetch(`/api/sessions/label?session=${session.pid}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: newLabel || null }),
-      }).then(() => refreshSessions()).catch(() => {});
+      const oldLabel = session.label || '';
+      if (newLabel !== oldLabel) {
+        fetch(`/api/sessions/label?session=${session.pid}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: newLabel || null }),
+        }).then(() => refreshSessions()).catch(() => {});
+      }
     }
 
     input.addEventListener('blur', finish);
