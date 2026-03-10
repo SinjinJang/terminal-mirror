@@ -745,6 +745,13 @@ kbd {
   height: 100%;
 }
 
+/* Hide IME composition preview — xterm.js renders it at the internal cursor
+   position, which may differ from the visible prompt in TUI apps (e.g. Ink).
+   The committed text still appears correctly via PTY echo. */
+.xterm .xterm-composition-view {
+  display: none !important;
+}
+
 /* ── Text view toggle button ── */
 .btn-toggle-view {
   background: #2a2a2a;

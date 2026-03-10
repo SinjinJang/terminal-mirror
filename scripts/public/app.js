@@ -115,8 +115,10 @@
     if (!textViewEnabled) {
       fitAddon.fit();
     }
-    if (serverCols !== null && xterm.cols !== serverCols) {
-      xterm.resize(serverCols, xterm.rows);
+    const targetCols = serverCols !== null ? serverCols : xterm.cols;
+    const targetRows = serverRows !== null ? serverRows : xterm.rows;
+    if (xterm.cols !== targetCols || xterm.rows !== targetRows) {
+      xterm.resize(targetCols, targetRows);
     }
     updateSizeDisplay();
   }
@@ -204,13 +206,6 @@
     }
   }
 
-  function setCursorVisible(visible) {
-    if (!xterm) return;
-    xterm.options.cursorStyle = visible ? 'block' : 'bar';
-    xterm.options.cursorWidth = visible ? undefined : 1;
-    xterm.options.theme = { ...xterm.options.theme, cursor: visible ? '#e4e4e4' : 'rgba(0,0,0,0)' };
-  }
-
   function setTextViewMode(enabled) {
     textViewEnabled = enabled;
     toggleViewBtn.classList.toggle('active', enabled);
@@ -218,12 +213,10 @@
       xtermContainer.style.display = 'none';
       textViewContainer.style.display = 'block';
       renderTextView();
-      setCursorVisible(false);
     } else {
       textViewContainer.style.display = 'none';
       xtermContainer.style.display = 'block';
       fitTerminal();
-      setCursorVisible(!!currentSessionPid);
     }
   }
 
@@ -241,7 +234,7 @@
       scrollback: currentSettings.scrollback,
       convertEol: false,
       disableStdin: false,
-      cursorBlink: true,
+      cursorBlink: false,
       cursorStyle: 'bar',
       cursorWidth: 1,
     });
@@ -1279,6 +1272,31 @@
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:1.2em;">Server stopped. You can close this tab.</div>';
   }
 
+  // Batch binary writes per animation frame to avoid cursor flicker.
+  // Kept outside connectTerminalWs so reconnects can cancel pending RAF.
+  let writeBuf = [];
+  let writeRaf = null;
+  function flushWrites() {
+    writeRaf = null;
+    if (!xterm || writeBuf.length === 0) return;
+    if (writeBuf.length === 1) {
+      xterm.write(writeBuf[0]);
+    } else {
+      let len = 0;
+      for (const c of writeBuf) len += c.length;
+      const combined = new Uint8Array(len);
+      let off = 0;
+      for (const c of writeBuf) { combined.set(c, off); off += c.length; }
+      xterm.write(combined);
+    }
+    writeBuf = [];
+    scheduleTextViewUpdate();
+  }
+  function cancelPendingWrites() {
+    if (writeRaf) { cancelAnimationFrame(writeRaf); writeRaf = null; }
+    writeBuf = [];
+  }
+
   function connectTerminalWs() {
     if (!currentSessionPid) return;
     if (terminalWs) {
@@ -1286,6 +1304,7 @@
       terminalWs.close();
       terminalWs = null;
     }
+    cancelPendingWrites();
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams({ session: String(currentSessionPid) });
     terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal?${params.toString()}`);
@@ -1294,14 +1313,19 @@
     terminalWs.onopen = () => {
       wsStatus.style.background = '#9ece6a';
       terminalReconnects = 0;
-      if (!textViewEnabled) setCursorVisible(true);
     };
 
     terminalWs.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
         if (xterm) {
-          xterm.write(new Uint8Array(e.data));
-          scheduleTextViewUpdate();
+          // Skip batching when tab is hidden (RAF won't fire)
+          if (document.hidden) {
+            xterm.write(new Uint8Array(e.data));
+            scheduleTextViewUpdate();
+          } else {
+            writeBuf.push(new Uint8Array(e.data));
+            if (!writeRaf) writeRaf = requestAnimationFrame(flushWrites);
+          }
         }
       } else {
         try {
@@ -1319,7 +1343,6 @@
               showToast('Wrapper process exited (code ' + msg.exitCode + ')');
               if (xterm) { xterm.reset(); xterm.clear(); }
               // Auto-switch to another session after brief delay for server cleanup
-              setCursorVisible(false);
               setTimeout(async () => {
                 const sessions = await refreshSessions();
                 const other = sessions.find(s => s.pid !== currentSessionPid);
@@ -1333,6 +1356,7 @@
 
     const sessionPidAtConnect = currentSessionPid;
     terminalWs.onclose = () => {
+      cancelPendingWrites();
       wsStatus.style.background = '#555';
       if (serverShutdown) return;
       // Only reconnect if we're still on the same session
