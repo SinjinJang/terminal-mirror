@@ -225,7 +225,7 @@
       theme: {
         background: '#0a0a0a',
         foreground: '#e4e4e4',
-        cursor: 'rgba(0,0,0,0)',
+        cursor: '#e4e4e4',
         selectionBackground: 'rgba(122, 162, 247, 0.3)',
       },
       fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace",
@@ -234,7 +234,7 @@
       scrollback: currentSettings.scrollback,
       convertEol: false,
       disableStdin: false,
-      cursorBlink: false,
+      cursorBlink: true,
       cursorStyle: 'bar',
       cursorWidth: 1,
     });
