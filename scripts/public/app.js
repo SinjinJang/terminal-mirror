@@ -19,7 +19,7 @@
   const SESSION_REFRESH_MS = 5000;
   const MOBILE_BREAKPOINT = 768;
   let isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
-  const DEFAULT_SETTINGS = { fontSize: isMobile ? 14 : 13, lineHeight: 1.4, scrollback: 50000 };
+  const DEFAULT_SETTINGS = { fontSize: isMobile ? 14 : 13, lineHeight: 1.4, scrollback: 50000, cursorVisible: true };
 
   // ── State ──
   let comments = [];       // pending (not yet submitted)
@@ -49,6 +49,7 @@
         fontSize: clampNum(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize, 10, 24),
         lineHeight: clampNum(parsed.lineHeight ?? DEFAULT_SETTINGS.lineHeight, 1.0, 2.0),
         scrollback: clampNum(parsed.scrollback ?? DEFAULT_SETTINGS.scrollback, 1000, 100000),
+        cursorVisible: parsed.cursorVisible ?? DEFAULT_SETTINGS.cursorVisible,
       };
     } catch { return { ...DEFAULT_SETTINGS }; }
   }
@@ -87,12 +88,18 @@
     xterm.options.fontSize = s.fontSize;
     xterm.options.lineHeight = s.lineHeight;
     xterm.options.scrollback = s.scrollback;
+    applyCursorVisible(s.cursorVisible);
     if (textViewEnabled) {
       textViewContainer.style.fontSize = s.fontSize + 'px';
       textViewContainer.style.lineHeight = String(s.lineHeight);
     }
     fitTerminal();
     renderCommentOverlays();
+  }
+
+  function applyCursorVisible(visible) {
+    if (!xtermContainer) return;
+    xtermContainer.classList.toggle('cursor-hidden', !visible);
   }
 
   let currentSettings = loadSettings();
@@ -127,6 +134,7 @@
   const scrollbackInput = document.getElementById('scrollbackInput');
   const colsInput = document.getElementById('colsInput');
   const colsValue = document.getElementById('colsValue');
+  const cursorVisibleCheck = document.getElementById('cursorVisibleCheck');
   const settingsReset = document.getElementById('settingsReset');
   const sessionTabsInner = document.getElementById('sessionTabsInner');
   const shortcutBarInner = document.getElementById('shortcutBarInner');
@@ -276,6 +284,7 @@
     xtermContainer.style.display = 'block';
     xterm.open(xtermContainer);
     fitTerminal();
+    applyCursorVisible(currentSettings.cursorVisible);
 
     // Toggle view button
     toggleViewBtn.addEventListener('click', () => {
@@ -981,6 +990,7 @@
     lineHeightRange.value = s.lineHeight;
     lineHeightValue.textContent = s.lineHeight;
     scrollbackInput.value = s.scrollback;
+    cursorVisibleCheck.checked = s.cursorVisible;
   }
 
   function syncTerminalUI() {
@@ -1026,6 +1036,12 @@
     const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
     colsInput.value = v;
     sendTerminalResize(v);
+  });
+
+  cursorVisibleCheck.addEventListener('change', () => {
+    currentSettings.cursorVisible = cursorVisibleCheck.checked;
+    applySettings(currentSettings);
+    saveSettings(currentSettings);
   });
 
   settingsReset.addEventListener('click', () => {

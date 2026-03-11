@@ -136,6 +136,19 @@ body {
 
 .settings-input:focus { border-color: #7aa2f7; }
 
+.settings-check-group { margin-bottom: 12px; }
+.settings-check-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #999;
+  cursor: pointer;
+}
+.settings-check-label input[type="checkbox"] { accent-color: #7aa2f7; }
+
+.cursor-hidden .xterm-cursor-layer { opacity: 0 !important; }
+
 .settings-actions {
   display: flex;
   justify-content: flex-end;
