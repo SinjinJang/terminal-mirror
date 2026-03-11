@@ -98,7 +98,6 @@
   }
 
   function applyCursorVisible(visible) {
-    if (!xtermContainer) return;
     xtermContainer.classList.toggle('cursor-hidden', !visible);
   }
 
@@ -1040,7 +1039,7 @@
 
   cursorVisibleCheck.addEventListener('change', () => {
     currentSettings.cursorVisible = cursorVisibleCheck.checked;
-    applySettings(currentSettings);
+    applyCursorVisible(currentSettings.cursorVisible);
     saveSettings(currentSettings);
   });
 
