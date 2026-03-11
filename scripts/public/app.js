@@ -7,6 +7,14 @@
   const MAX_RECONNECT = 5;
   const COMMENT_COLORS = ['#ff9e64', '#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff'];
   const SETTINGS_KEY = 'terminal-mirror-settings';
+  const SHORTCUTS_KEY = 'terminal-mirror-shortcuts';
+  const DEFAULT_SHORTCUTS = [
+    { id: 'esc',       label: 'ESC',       data: '\x1b',   sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'ctrl-c',    label: 'Ctrl+C',    data: '\x03',   sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'ctrl-d',    label: 'Ctrl+D',    data: '\x04',   sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'tab',       label: 'Tab',       data: '\t',     sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'shift-tab', label: 'Shift+Tab', data: '\x1b[Z', sendEnter: false, type: 'builtin', hidden: false },
+  ];
   const SESSION_REFRESH_MS = 5000;
   const MOBILE_BREAKPOINT = 768;
   let isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
@@ -47,6 +55,31 @@
 
   function saveSettings(s) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  }
+
+  // ── Shortcuts ──
+  let shortcuts = [];
+
+  function loadShortcuts() {
+    let saved = [];
+    try {
+      const raw = localStorage.getItem(SHORTCUTS_KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch {}
+    // Merge: builtin items use defaults but keep saved hidden state
+    const savedMap = {};
+    saved.forEach(s => { savedMap[s.id] = s; });
+    const result = DEFAULT_SHORTCUTS.map(d => ({
+      ...d,
+      hidden: savedMap[d.id] ? savedMap[d.id].hidden : d.hidden,
+    }));
+    // Append custom items
+    saved.filter(s => s.type === 'custom').forEach(s => result.push(s));
+    return result;
+  }
+
+  function saveShortcuts(sc) {
+    localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(sc));
   }
 
   function applySettings(s) {
@@ -98,6 +131,8 @@
   const rowsValue = document.getElementById('rowsValue');
   const settingsReset = document.getElementById('settingsReset');
   const sessionTabsInner = document.getElementById('sessionTabsInner');
+  const shortcutBarInner = document.getElementById('shortcutBarInner');
+  const shortcutEditBtn = document.getElementById('shortcutEditBtn');
 
   // ── xterm.js setup ──
   let lastMousePos = { x: 0, y: 0 };
@@ -1412,10 +1447,195 @@
     };
   }
 
+  // ── Shortcut bar ──
+  shortcuts = loadShortcuts();
+
+  function renderShortcutBar() {
+    shortcutBarInner.innerHTML = '';
+    shortcuts.filter(s => !s.hidden).forEach(sc => {
+      const btn = document.createElement('button');
+      btn.className = 'shortcut-btn' + (sc.type === 'custom' ? ' custom' : '');
+      btn.textContent = sc.label;
+      btn.addEventListener('click', () => sendShortcut(sc));
+      shortcutBarInner.appendChild(btn);
+    });
+  }
+
+  function sendShortcut(sc) {
+    if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
+    terminalWs.send(JSON.stringify({ type: 'input', data: sc.data }));
+    if (sc.sendEnter) {
+      setTimeout(() => {
+        if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+          terminalWs.send(JSON.stringify({ type: 'input', data: '\r' }));
+        }
+      }, 50);
+    }
+  }
+
+  // Prevent shortcut bar clicks from stealing xterm focus
+  document.getElementById('shortcutBar').addEventListener('mousedown', e => e.preventDefault());
+
+  function openShortcutEditor() {
+    const overlay = document.createElement('div');
+    overlay.className = 'shortcut-modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'shortcut-modal';
+
+    function render() {
+      modal.innerHTML = '';
+      const title = document.createElement('div');
+      title.className = 'shortcut-modal-title';
+      title.textContent = 'Edit Shortcuts';
+      modal.appendChild(title);
+
+      // Builtin section
+      const builtinLabel = document.createElement('div');
+      builtinLabel.className = 'shortcut-modal-section';
+      builtinLabel.textContent = 'Built-in';
+      modal.appendChild(builtinLabel);
+
+      shortcuts.filter(s => s.type === 'builtin').forEach(sc => {
+        const item = document.createElement('div');
+        item.className = 'shortcut-modal-item';
+        const label = document.createElement('span');
+        label.className = 'shortcut-modal-item-label';
+        label.textContent = sc.label;
+        const actions = document.createElement('div');
+        actions.className = 'shortcut-modal-item-actions';
+        const toggle = createToggle(!sc.hidden, checked => {
+          sc.hidden = !checked;
+          saveShortcuts(shortcuts);
+          renderShortcutBar();
+        });
+        actions.appendChild(toggle);
+        item.appendChild(label);
+        item.appendChild(actions);
+        modal.appendChild(item);
+      });
+
+      // Custom section
+      const customs = shortcuts.filter(s => s.type === 'custom');
+      if (customs.length > 0) {
+        const customLabel = document.createElement('div');
+        customLabel.className = 'shortcut-modal-section';
+        customLabel.textContent = 'Custom';
+        modal.appendChild(customLabel);
+
+        customs.forEach(sc => {
+          const item = document.createElement('div');
+          item.className = 'shortcut-modal-item';
+          const label = document.createElement('span');
+          label.className = 'shortcut-modal-item-label';
+          label.textContent = sc.label + (sc.sendEnter ? ' \u23ce' : '');
+          const actions = document.createElement('div');
+          actions.className = 'shortcut-modal-item-actions';
+
+          const editBtn = document.createElement('button');
+          editBtn.className = 'shortcut-modal-item-btn';
+          editBtn.textContent = 'Edit';
+          editBtn.addEventListener('click', () => {
+            const newLabel = prompt('Label:', sc.label);
+            if (newLabel === null) return;
+            const newData = prompt('Command text:', sc.data);
+            if (newData === null) return;
+            sc.label = newLabel || sc.label;
+            sc.data = newData || sc.data;
+            saveShortcuts(shortcuts);
+            renderShortcutBar();
+            render();
+          });
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'shortcut-modal-item-btn delete';
+          delBtn.textContent = 'Del';
+          delBtn.addEventListener('click', () => {
+            shortcuts = shortcuts.filter(s => s.id !== sc.id);
+            saveShortcuts(shortcuts);
+            renderShortcutBar();
+            render();
+          });
+
+          const toggle = createToggle(!sc.hidden, checked => {
+            sc.hidden = !checked;
+            saveShortcuts(shortcuts);
+            renderShortcutBar();
+          });
+
+          actions.appendChild(editBtn);
+          actions.appendChild(delBtn);
+          actions.appendChild(toggle);
+          item.appendChild(label);
+          item.appendChild(actions);
+          modal.appendChild(item);
+        });
+      }
+
+      // Add form
+      const form = document.createElement('div');
+      form.className = 'shortcut-add-form';
+      form.innerHTML =
+        '<input type="text" placeholder="Label (e.g. ls)" id="scAddLabel">' +
+        '<input type="text" placeholder="Command text (e.g. ls -la)" id="scAddData">' +
+        '<div class="shortcut-add-form-row">' +
+          '<label><input type="checkbox" id="scAddEnter" checked> Send Enter</label>' +
+          '<button class="popup-btn save" id="scAddBtn">Add</button>' +
+        '</div>';
+      modal.appendChild(form);
+
+      modal.querySelector('#scAddBtn').addEventListener('click', () => {
+        const labelVal = modal.querySelector('#scAddLabel').value.trim();
+        const dataVal = modal.querySelector('#scAddData').value;
+        if (!labelVal || !dataVal) return;
+        const enterVal = modal.querySelector('#scAddEnter').checked;
+        shortcuts.push({
+          id: 'custom-' + Date.now(),
+          label: labelVal,
+          data: dataVal,
+          sendEnter: enterVal,
+          type: 'custom',
+          hidden: false,
+        });
+        saveShortcuts(shortcuts);
+        renderShortcutBar();
+        render();
+      });
+    }
+
+    function createToggle(checked, onChange) {
+      const wrapper = document.createElement('label');
+      wrapper.className = 'shortcut-toggle';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = checked;
+      input.addEventListener('change', () => onChange(input.checked));
+      const slider = document.createElement('span');
+      slider.className = 'shortcut-toggle-slider';
+      wrapper.appendChild(input);
+      wrapper.appendChild(slider);
+      return wrapper;
+    }
+
+    render();
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) {
+        overlay.remove();
+        if (xterm) xterm.focus();
+      }
+    });
+  }
+
+  shortcutEditBtn.addEventListener('click', openShortcutEditor);
+
   // ── Init ──
   loadingState.remove();
   initXterm();
   updateBadge();
+  renderShortcutBar();
 
   // Fetch sessions and auto-connect
   refreshSessions().then(() => {
