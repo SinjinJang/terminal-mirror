@@ -12,6 +12,7 @@
     { id: 'esc',       label: 'ESC',       data: '\x1b',   sendEnter: false, type: 'builtin', hidden: false },
     { id: 'ctrl-c',    label: 'Ctrl+C',    data: '\x03',   sendEnter: false, type: 'builtin', hidden: false },
     { id: 'ctrl-d',    label: 'Ctrl+D',    data: '\x04',   sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'ctrl-o',    label: 'Ctrl+O',    data: '\x0f',   sendEnter: false, type: 'builtin', hidden: false },
     { id: 'tab',       label: 'Tab',       data: '\t',     sendEnter: false, type: 'builtin', hidden: false },
     { id: 'shift-tab', label: 'Shift+Tab', data: '\x1b[Z', sendEnter: false, type: 'builtin', hidden: false },
   ];
@@ -1378,7 +1379,7 @@
 
     const sessionPidAtConnect = currentSessionPid;
     terminalWs.onclose = () => {
-      cancelPendingWrites();
+      flushWrites();
       wsStatus.style.background = '#555';
       if (serverShutdown) return;
       // Only reconnect if we're still on the same session

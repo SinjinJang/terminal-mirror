@@ -135,7 +135,7 @@ function createSession(pid, ipcPath) {
   };
 }
 
-const REPLAY_BUFFER_MAX = 64 * 1024; // 64 KB
+const REPLAY_BUFFER_MAX = 512 * 1024; // 512 KB
 
 function appendReplayBuffer(session, buf) {
   session.replayChunks.push(buf);
