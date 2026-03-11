@@ -30,7 +30,6 @@
   let xterm = null;
   let fitAddon = null;
   let serverCols = null;
-  let serverRows = null;
   const knownBatchIds = new Set();
 
   // ── Session state ──
@@ -127,8 +126,6 @@
   const scrollbackInput = document.getElementById('scrollbackInput');
   const colsInput = document.getElementById('colsInput');
   const colsValue = document.getElementById('colsValue');
-  const rowsInput = document.getElementById('rowsInput');
-  const rowsValue = document.getElementById('rowsValue');
   const settingsReset = document.getElementById('settingsReset');
   const sessionTabsInner = document.getElementById('sessionTabsInner');
   const shortcutBarInner = document.getElementById('shortcutBarInner');
@@ -151,23 +148,21 @@
       fitAddon.fit();
     }
     const targetCols = serverCols !== null ? serverCols : xterm.cols;
-    const targetRows = serverRows !== null ? serverRows : xterm.rows;
-    if (xterm.cols !== targetCols || xterm.rows !== targetRows) {
-      xterm.resize(targetCols, targetRows);
+    if (xterm.cols !== targetCols) {
+      xterm.resize(targetCols, xterm.rows);
     }
     updateSizeDisplay();
   }
 
-  function sendTerminalResize(cols, rows) {
+  function sendTerminalResize(cols) {
     if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
-    if (cols < 1 || rows < 1) return;
-    terminalWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+    if (cols < 1) return;
+    terminalWs.send(JSON.stringify({ type: 'resize', cols }));
   }
 
   function updateSizeDisplay() {
     if (!xterm) return;
     colsValue.textContent = xterm.cols;
-    rowsValue.textContent = xterm.rows;
   }
 
   // ── Text view mode (mobile) ──
@@ -990,7 +985,6 @@
   function syncTerminalUI() {
     if (!xterm) return;
     colsInput.value = xterm.cols;
-    rowsInput.value = xterm.rows;
     updateSizeDisplay();
   }
 
@@ -1030,13 +1024,7 @@
   colsInput.addEventListener('change', () => {
     const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
     colsInput.value = v;
-    sendTerminalResize(v, parseInt(rowsInput.value, 10) || 24);
-  });
-
-  rowsInput.addEventListener('change', () => {
-    const v = clampNum(parseInt(rowsInput.value, 10) || 24, 1, 200);
-    rowsInput.value = v;
-    sendTerminalResize(parseInt(colsInput.value, 10) || 80, v);
+    sendTerminalResize(v);
   });
 
   settingsReset.addEventListener('click', () => {
@@ -1368,7 +1356,6 @@
           if (msg.type === 'shutdown') { handleShutdown(); return; }
           if (msg.type === 'resize' && xterm) {
             serverCols = msg.cols;
-            serverRows = msg.rows;
             fitTerminal();
             syncTerminalUI();
           }

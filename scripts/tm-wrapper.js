@@ -18,10 +18,13 @@ const SIGINT_FORCE_CLEANUP_MS = 3000;
 // ── Parse CLI args ──
 const rawArgs = process.argv.slice(2);
 let sessionLabel = null;
+let configCols = null;
 const filteredArgs = [];
 for (let i = 0; i < rawArgs.length; i++) {
   if ((rawArgs[i] === '--name' || rawArgs[i] === '-n') && i + 1 < rawArgs.length) {
     sessionLabel = rawArgs[++i];
+  } else if (rawArgs[i] === '--cols' && i + 1 < rawArgs.length) {
+    configCols = parseInt(rawArgs[++i], 10) || null;
   } else {
     filteredArgs.push(rawArgs[i]);
   }
@@ -58,7 +61,7 @@ if (IS_WIN) {
 }
 
 // ── Terminal dimensions ──
-const cols = process.stdout.columns || 80;
+const cols = configCols || process.stdout.columns || 80;
 const rows = process.stdout.rows || 24;
 
 // ── Ring buffer for scrollback history ──
