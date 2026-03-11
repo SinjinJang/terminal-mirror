@@ -132,10 +132,60 @@ function createSession(pid, ipcPath) {
     pollWaiters: [],
     replayChunks: [], // recent output chunks for new clients
     replaySize: 0,
+    termState: { altScreen: false, cursorHidden: false },
   };
 }
 
 const REPLAY_BUFFER_MAX = 512 * 1024; // 512 KB
+
+// Track DEC private mode sequences to maintain terminal state.
+// This lets us restore state (alt screen, cursor visibility) for new clients
+// when the original escape sequences have been pushed out of the replay buffer.
+function trackTerminalState(session, buf) {
+  const str = buf.toString('latin1');
+
+  // Cursor visibility: \e[?25l (hide) / \e[?25h (show)
+  const lastCursorHide = str.lastIndexOf('\x1b[?25l');
+  const lastCursorShow = str.lastIndexOf('\x1b[?25h');
+  if (lastCursorHide !== -1 || lastCursorShow !== -1) {
+    session.termState.cursorHidden = lastCursorHide > lastCursorShow;
+  }
+
+  // Alternate screen buffer: \e[?1049h (enter) / \e[?1049l (leave)
+  const lastAltEnter = str.lastIndexOf('\x1b[?1049h');
+  const lastAltLeave = str.lastIndexOf('\x1b[?1049l');
+  if (lastAltEnter !== -1 || lastAltLeave !== -1) {
+    session.termState.altScreen = lastAltEnter > lastAltLeave;
+  }
+}
+
+// Build a prefix of escape sequences that restores terminal state
+// not already established by the replay buffer itself.
+function getStateRestorationPrefix(session) {
+  const replay = getReplayBuffer(session);
+  let replayAltScreen = false;
+  let replayCursorHidden = false;
+
+  if (replay) {
+    const str = replay.toString('latin1');
+    const lastAltEnter = str.lastIndexOf('\x1b[?1049h');
+    const lastAltLeave = str.lastIndexOf('\x1b[?1049l');
+    replayAltScreen = lastAltEnter > lastAltLeave;
+
+    const lastCursorHide = str.lastIndexOf('\x1b[?25l');
+    const lastCursorShow = str.lastIndexOf('\x1b[?25h');
+    replayCursorHidden = lastCursorHide > lastCursorShow;
+  }
+
+  let prefix = '';
+  if (session.termState.altScreen && !replayAltScreen) {
+    prefix += '\x1b[?1049h';
+  }
+  if (session.termState.cursorHidden && !replayCursorHidden) {
+    prefix += '\x1b[?25l';
+  }
+  return prefix ? Buffer.from(prefix) : null;
+}
 
 function appendReplayBuffer(session, buf) {
   session.replayChunks.push(buf);
@@ -284,6 +334,7 @@ function handleWrapperMessage(session, msg) {
     case 'scrollback':
     case 'output': {
       const buf = Buffer.from(msg.data, 'base64');
+      trackTerminalState(session, buf);
       appendReplayBuffer(session, buf);
       broadcast(session.terminalClients,buf);
       break;
@@ -646,7 +697,10 @@ httpServer.on('upgrade', (request, socket, head) => {
         connected: session.connected,
       }));
 
-      // Replay recent output so the client sees terminal content immediately
+      // Restore terminal state (alt screen, cursor visibility) that may have
+      // been pushed out of the replay buffer, then replay recent output.
+      const statePrefix = getStateRestorationPrefix(session);
+      if (statePrefix) ws.send(statePrefix);
       const replay = getReplayBuffer(session);
       if (replay) ws.send(replay);
 
