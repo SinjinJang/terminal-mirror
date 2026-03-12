@@ -1338,8 +1338,10 @@
     terminalWs.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
         if (xterm) {
-          // Skip batching when tab is hidden (RAF won't fire)
+          // Skip batching when tab is hidden (RAF won't fire).
+          // Flush pending buffer first to preserve data ordering.
           if (document.hidden) {
+            if (writeBuf.length > 0) flushWrites();
             xterm.write(new Uint8Array(e.data));
             scheduleTextViewUpdate();
           } else {
