@@ -17,6 +17,7 @@
     { id: 'shift-tab', label: 'Shift+Tab', data: '\x1b[Z', sendEnter: false, type: 'builtin', hidden: false },
     { id: 'arrow-up',  label: '\u2191',        data: '\x1b[A', sendEnter: false, type: 'builtin', hidden: false },
     { id: 'arrow-down',label: '\u2193',        data: '\x1b[B', sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'enter',     label: 'Enter',     data: '\r',     sendEnter: false, type: 'builtin', hidden: false },
   ];
   const SESSION_REFRESH_MS = 5000;
   const MOBILE_BREAKPOINT = 768;
