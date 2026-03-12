@@ -15,6 +15,8 @@
     { id: 'ctrl-o',    label: 'Ctrl+O',    data: '\x0f',   sendEnter: false, type: 'builtin', hidden: false },
     { id: 'tab',       label: 'Tab',       data: '\t',     sendEnter: false, type: 'builtin', hidden: false },
     { id: 'shift-tab', label: 'Shift+Tab', data: '\x1b[Z', sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'arrow-up',  label: '\u2191',        data: '\x1b[A', sendEnter: false, type: 'builtin', hidden: false },
+    { id: 'arrow-down',label: '\u2193',        data: '\x1b[B', sendEnter: false, type: 'builtin', hidden: false },
   ];
   const SESSION_REFRESH_MS = 5000;
   const MOBILE_BREAKPOINT = 768;
@@ -1434,7 +1436,10 @@
 
   function renderShortcutBar() {
     shortcutBarInner.innerHTML = '';
-    shortcuts.filter(s => !s.hidden).forEach(sc => {
+    const visible = shortcuts.filter(s => !s.hidden);
+    const customs = visible.filter(s => s.type === 'custom');
+    const builtins = visible.filter(s => s.type === 'builtin');
+    customs.concat(builtins).forEach(sc => {
       const btn = document.createElement('button');
       btn.className = 'shortcut-btn' + (sc.type === 'custom' ? ' custom' : '');
       btn.textContent = sc.label;
@@ -1471,31 +1476,6 @@
       title.className = 'shortcut-modal-title';
       title.textContent = 'Edit Shortcuts';
       modal.appendChild(title);
-
-      // Builtin section
-      const builtinLabel = document.createElement('div');
-      builtinLabel.className = 'shortcut-modal-section';
-      builtinLabel.textContent = 'Built-in';
-      modal.appendChild(builtinLabel);
-
-      shortcuts.filter(s => s.type === 'builtin').forEach(sc => {
-        const item = document.createElement('div');
-        item.className = 'shortcut-modal-item';
-        const label = document.createElement('span');
-        label.className = 'shortcut-modal-item-label';
-        label.textContent = sc.label;
-        const actions = document.createElement('div');
-        actions.className = 'shortcut-modal-item-actions';
-        const toggle = createToggle(!sc.hidden, checked => {
-          sc.hidden = !checked;
-          saveShortcuts(shortcuts);
-          renderShortcutBar();
-        });
-        actions.appendChild(toggle);
-        item.appendChild(label);
-        item.appendChild(actions);
-        modal.appendChild(item);
-      });
 
       // Custom section
       const customs = shortcuts.filter(s => s.type === 'custom');
@@ -1553,6 +1533,31 @@
           modal.appendChild(item);
         });
       }
+
+      // Builtin section
+      const builtinLabel = document.createElement('div');
+      builtinLabel.className = 'shortcut-modal-section';
+      builtinLabel.textContent = 'Built-in';
+      modal.appendChild(builtinLabel);
+
+      shortcuts.filter(s => s.type === 'builtin').forEach(sc => {
+        const item = document.createElement('div');
+        item.className = 'shortcut-modal-item';
+        const label = document.createElement('span');
+        label.className = 'shortcut-modal-item-label';
+        label.textContent = sc.label;
+        const actions = document.createElement('div');
+        actions.className = 'shortcut-modal-item-actions';
+        const toggle = createToggle(!sc.hidden, checked => {
+          sc.hidden = !checked;
+          saveShortcuts(shortcuts);
+          renderShortcutBar();
+        });
+        actions.appendChild(toggle);
+        item.appendChild(label);
+        item.appendChild(actions);
+        modal.appendChild(item);
+      });
 
       // Add form
       const form = document.createElement('div');
