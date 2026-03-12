@@ -341,12 +341,6 @@
           }
         }
         if (ev.key === 'v' || ev.key === 'V' || ev.code === 'KeyV') {
-          ev.preventDefault();
-          navigator.clipboard.readText().then((text) => {
-            if (text && terminalWs && terminalWs.readyState === WebSocket.OPEN) {
-              terminalWs.send(JSON.stringify({ type: 'input', data: text }));
-            }
-          }).catch(() => {});
           return false;
         }
       }
