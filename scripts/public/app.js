@@ -1,28 +1,12 @@
 (function() {
-  const urlParams = new URLSearchParams(window.location.search);
+  const {
+    MAX_SELECTED_TEXT, MAX_SELECTED_TEXT_DISPLAY, MAX_RECONNECT,
+    COMMENT_COLORS, SETTINGS_KEY, SHORTCUTS_KEY, DEFAULT_SHORTCUTS,
+    SESSION_REFRESH_MS, MOBILE_BREAKPOINT, DEFAULT_SETTINGS, TEXT_VIEW_DEBOUNCE_MS,
+  } = TM.constants;
 
-  // ── Constants ──
-  const MAX_SELECTED_TEXT = 500;
-  const MAX_SELECTED_TEXT_DISPLAY = 80;
-  const MAX_RECONNECT = 5;
-  const COMMENT_COLORS = ['#ff9e64', '#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff'];
-  const SETTINGS_KEY = 'terminal-mirror-settings';
-  const SHORTCUTS_KEY = 'terminal-mirror-shortcuts';
-  const DEFAULT_SHORTCUTS = [
-    { id: 'esc',       label: 'ESC',       data: '\x1b',   sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'ctrl-c',    label: 'Ctrl+C',    data: '\x03',   sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'ctrl-d',    label: 'Ctrl+D',    data: '\x04',   sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'ctrl-o',    label: 'Ctrl+O',    data: '\x0f',   sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'tab',       label: 'Tab',       data: '\t',     sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'shift-tab', label: 'Shift+Tab', data: '\x1b[Z', sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'arrow-up',  label: '\u2191',        data: '\x1b[A', sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'arrow-down',label: '\u2193',        data: '\x1b[B', sendEnter: false, type: 'builtin', hidden: false },
-    { id: 'enter',     label: 'Enter',     data: '\r',     sendEnter: false, type: 'builtin', hidden: false },
-  ];
-  const SESSION_REFRESH_MS = 5000;
-  const MOBILE_BREAKPOINT = 768;
+  const urlParams = new URLSearchParams(window.location.search);
   let isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
-  const DEFAULT_SETTINGS = { fontSize: isMobile ? 14 : 13, lineHeight: 1.4, scrollback: 50000 };
 
   // ── State ──
   let comments = [];       // pending (not yet submitted)
@@ -40,50 +24,11 @@
   let currentSessionPid = null;
   let sessionRefreshTimer = null;
 
-  // ── Settings ──
-  function clampNum(val, min, max) { return Math.min(max, Math.max(min, val)); }
-
-  function loadSettings() {
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return { ...DEFAULT_SETTINGS };
-      const parsed = JSON.parse(raw);
-      return {
-        fontSize: clampNum(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize, 10, 24),
-        lineHeight: clampNum(parsed.lineHeight ?? DEFAULT_SETTINGS.lineHeight, 1.0, 2.0),
-        scrollback: clampNum(parsed.scrollback ?? DEFAULT_SETTINGS.scrollback, 1000, 100000),
-      };
-    } catch { return { ...DEFAULT_SETTINGS }; }
-  }
-
-  function saveSettings(s) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-  }
+  const { clampNum, loadSettings, saveSettings, loadShortcuts, saveShortcuts } = TM.settings;
+  const { showToast, copyToClipboard } = TM.utils;
 
   // ── Shortcuts ──
   let shortcuts = [];
-
-  function loadShortcuts() {
-    let saved = [];
-    try {
-      const raw = localStorage.getItem(SHORTCUTS_KEY);
-      if (raw) saved = JSON.parse(raw);
-    } catch {}
-    // Merge: builtin items use defaults but keep saved hidden state
-    const savedMap = {};
-    saved.forEach(s => { savedMap[s.id] = s; });
-    const result = DEFAULT_SHORTCUTS.map(d => ({
-      ...d,
-      hidden: savedMap[d.id] ? savedMap[d.id].hidden : d.hidden,
-    }));
-    // Append custom items
-    saved.filter(s => s.type === 'custom').forEach(s => result.push(s));
-    return result;
-  }
-
-  function saveShortcuts(sc) {
-    localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(sc));
-  }
 
   function applySettings(s) {
     if (!xterm) return;
@@ -114,7 +59,6 @@
   const popupSave = document.getElementById('popupSave');
   const popupHeader = document.querySelector('.comment-popup-header');
   const commentBadge = document.getElementById('commentBadge');
-  const toast = document.getElementById('toast');
   const messageInput = document.getElementById('messageInput');
   const sendSubmitBtn = document.getElementById('sendSubmitBtn');
   const wsStatus = document.getElementById('wsStatus');
@@ -186,7 +130,6 @@
   // ── Text view mode (mobile) ──
   let textViewEnabled = false;
   let textViewUpdateTimer = null;
-  const TEXT_VIEW_DEBOUNCE_MS = 80;
 
   function extractBufferText() {
     if (!xterm) return [];
@@ -324,22 +267,6 @@
     let cachedSelectionText = '';
     let clearCacheTimer = null;
 
-    function copyToClipboard(text) {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).catch(() => copyFallback(text));
-      } else {
-        copyFallback(text);
-      }
-    }
-    function copyFallback(text) {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;opacity:0;left:-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
     function updateSelectionCache(text) {
       if (clearCacheTimer) { clearTimeout(clearCacheTimer); clearCacheTimer = null; }
       if (text) {
@@ -837,12 +764,6 @@
     updateBadge();
     if (xterm) xterm.clearSelection();
     messageInput.focus();
-  }
-
-  function showToast(message) {
-    toast.textContent = message;
-    toast.classList.add('visible');
-    setTimeout(() => toast.classList.remove('visible'), 2000);
   }
 
   function sendAll(withSubmit) {
