@@ -981,236 +981,6 @@
     }
   }
 
-  // ── Session management ──
-  function getSessionFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const s = params.get('session');
-    return s ? parseInt(s, 10) : null;
-  }
-
-  function updateUrlSession(pid) {
-    const params = new URLSearchParams(window.location.search);
-    if (pid) {
-      params.set('session', String(pid));
-    } else {
-      params.delete('session');
-    }
-    const newUrl = window.location.pathname + '?' + params.toString();
-    history.replaceState(null, '', newUrl);
-  }
-
-  let spawnEnabled = false;
-
-  async function fetchSessions() {
-    try {
-      const resp = await fetch('/api/sessions');
-      if (!resp.ok) return [];
-      const data = await resp.json();
-      if (Array.isArray(data)) return data; // backward compat
-      spawnEnabled = !!data.spawnEnabled;
-      updateSpawnButton();
-      return data.sessions || [];
-    } catch { return []; }
-  }
-
-  function formatSessionLabel(s) {
-    if (s.label) return s.label;
-    const cmd = (s.cmd || 'unknown').split('/').pop().split(' ')[0];
-    const cwdName = s.cwd ? s.cwd.replace(/^.*\//, '') || '/' : '';
-    const time = s.startedAt ? new Date(s.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const parts = [cmd];
-    if (cwdName) parts.push(cwdName);
-    if (time) parts.push(time);
-    return parts.join(' \u00b7 ');
-  }
-
-  let renamingTabPid = null;
-  let lastSessionsKey = '';
-
-  function updateSessionTabs(sessionsList) {
-    if (renamingTabPid !== null) return;
-    const key = sessionsList.map(s => `${s.pid}:${s.connected}:${s.label || ''}`).join('|');
-    if (key === lastSessionsKey) return;
-    lastSessionsKey = key;
-    sessionTabsInner.innerHTML = '';
-
-    if (sessionsList.length === 0) {
-      const empty = document.createElement('span');
-      empty.className = 'session-no-tabs';
-      empty.textContent = 'No sessions';
-      sessionTabsInner.appendChild(empty);
-      return;
-    }
-
-    for (const s of sessionsList) {
-      const tab = document.createElement('button');
-      tab.className = 'session-tab';
-      tab.dataset.pid = String(s.pid);
-      if (currentSessionPid === s.pid) tab.classList.add('active');
-      if (!s.connected) tab.classList.add('disconnected');
-
-      const dot = document.createElement('span');
-      dot.className = 'session-tab-dot';
-      tab.appendChild(dot);
-
-      const label = document.createElement('span');
-      label.className = 'session-tab-label';
-      label.textContent = formatSessionLabel(s);
-      tab.appendChild(label);
-
-      tab.addEventListener('click', () => {
-        const pid = parseInt(tab.dataset.pid, 10);
-        if (!isNaN(pid)) switchToSession(pid);
-        if (textViewEnabled) messageInput.focus();
-        else if (xterm) xterm.focus();
-      });
-
-      tab.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        startTabRename(tab, s);
-      });
-
-      tab.title = `${s.cmd || 'unknown'}\n${s.cwd || ''}\nDouble-click to rename`;
-
-      sessionTabsInner.appendChild(tab);
-    }
-
-    // Scroll active tab into view
-    const activeTab = sessionTabsInner.querySelector('.session-tab.active');
-    if (activeTab) activeTab.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-  }
-
-  function startTabRename(tab, session) {
-    const labelEl = tab.querySelector('.session-tab-label');
-    if (!labelEl || tab.querySelector('.session-tab-label-input')) return;
-
-    renamingTabPid = session.pid;
-
-    const input = document.createElement('input');
-    input.className = 'session-tab-label-input';
-    input.value = session.label || '';
-    input.placeholder = formatSessionLabel({ ...session, label: null });
-
-    labelEl.style.display = 'none';
-    tab.insertBefore(input, labelEl.nextSibling);
-    input.focus();
-    input.select();
-
-    function finish() {
-      if (renamingTabPid !== session.pid) return;
-      renamingTabPid = null;
-      const newLabel = input.value.trim();
-      input.remove();
-      labelEl.style.display = '';
-
-      const oldLabel = session.label || '';
-      if (newLabel !== oldLabel) {
-        fetch(`/api/sessions/label?session=${session.pid}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label: newLabel || null }),
-        }).then(() => refreshSessions()).catch(() => {});
-      }
-    }
-
-    input.addEventListener('blur', finish);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-      if (e.key === 'Escape') { input.value = session.label || ''; input.blur(); }
-    });
-  }
-
-  async function refreshSessions() {
-    const sessionsList = await fetchSessions();
-    updateSessionTabs(sessionsList);
-
-    // If we have no current session, auto-select
-    if (!currentSessionPid && sessionsList.length > 0) {
-      const urlSession = getSessionFromUrl();
-      const target = urlSession && sessionsList.some(s => s.pid === urlSession)
-        ? urlSession
-        : sessionsList[0].pid;
-      switchToSession(target);
-    }
-
-    return sessionsList;
-  }
-
-  function switchToSession(pid) {
-    if (pid === currentSessionPid) return;
-
-    // Close current WebSocket connections
-    TM.websocket.closeAll();
-
-    // Reset terminal state
-    if (xterm) {
-      xterm.reset();
-      xterm.clear();
-    }
-    serverCols = null;
-    textViewContainer.innerHTML = '';
-
-    // Clear per-session state
-    comments = [];
-    submitted = [];
-    knownBatchIds.clear();
-    expandedCommentId = null;
-    renderCommentOverlays();
-    updateBadge();
-
-    // Update state
-    currentSessionPid = pid;
-    updateUrlSession(pid);
-
-    // Highlight active tab
-    for (const tab of sessionTabsInner.querySelectorAll('.session-tab')) {
-      tab.classList.toggle('active', tab.dataset.pid === String(pid));
-    }
-
-    // Reset reconnect counters and connect to new session
-    TM.websocket.resetCounters();
-    connectingOverlay.classList.remove('hidden');
-    TM.websocket.connectTerminalWs();
-    TM.websocket.connectCommentWs();
-  }
-
-  document.getElementById('refreshSessionsBtn').addEventListener('click', async function () {
-    const btn = this;
-    btn.classList.add('spinning');
-    await refreshSessions();
-    setTimeout(() => btn.classList.remove('spinning'), 600);
-  });
-
-  function updateSpawnButton() {
-    const btn = document.getElementById('spawnSessionBtn');
-    if (btn) btn.style.display = spawnEnabled ? '' : 'none';
-  }
-
-  document.getElementById('spawnSessionBtn').addEventListener('click', async function () {
-    const btn = this;
-    btn.disabled = true;
-    try {
-      const resp = await fetch('/api/spawn', { method: 'POST' });
-      if (resp.ok) {
-        const { pid } = await resp.json();
-        // Wait for wrapper to initialize, then refresh and switch
-        setTimeout(async () => {
-          await refreshSessions();
-          if (pid) switchToSession(pid);
-          btn.disabled = false;
-        }, 800);
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        alert(data.error || 'Failed to spawn session');
-        btn.disabled = false;
-      }
-    } catch {
-      alert('Failed to spawn session');
-      btn.disabled = false;
-    }
-  });
-
-
   // ── Shortcut bar ──
   shortcuts = loadShortcuts();
 
@@ -1398,7 +1168,7 @@
 
   shortcutEditBtn.addEventListener('click', openShortcutEditor);
 
-  // ── Init WebSocket module ──
+  // ── Init modules ──
   TM.websocket.init({
     state: {
       get xterm() { return xterm; },
@@ -1414,8 +1184,8 @@
     syncTerminalUI,
     updateWrapperStatus,
     showToast,
-    refreshSessions,
-    switchToSession,
+    refreshSessions: () => TM.sessions.refreshSessions(),
+    switchToSession: (pid) => TM.sessions.switchToSession(pid),
     renderCommentOverlays: () => renderCommentOverlays(),
     updateBadge,
     scheduleTextViewUpdate,
@@ -1425,6 +1195,27 @@
     dom: { wsStatus, connectingOverlay },
   });
 
+  TM.sessions.init({
+    state: {
+      get currentSessionPid() { return currentSessionPid; },
+      set currentSessionPid(v) { currentSessionPid = v; },
+      get xterm() { return xterm; },
+      get serverCols() { return serverCols; },
+      set serverCols(v) { serverCols = v; },
+      get comments() { return comments; },
+      set comments(v) { comments = v; },
+      get submitted() { return submitted; },
+      set submitted(v) { submitted = v; },
+      get knownBatchIds() { return knownBatchIds; },
+      get expandedCommentId() { return expandedCommentId; },
+      set expandedCommentId(v) { expandedCommentId = v; },
+      get textViewEnabled() { return textViewEnabled; },
+    },
+    renderCommentOverlays: () => renderCommentOverlays(),
+    updateBadge,
+    dom: { sessionTabsInner, connectingOverlay, messageInput, textViewContainer },
+  });
+
   // ── Init ──
   loadingState.remove();
   initXterm();
@@ -1432,10 +1223,10 @@
   renderShortcutBar();
 
   // Fetch sessions and auto-connect
-  refreshSessions().then(() => {
+  TM.sessions.refreshSessions().then(() => {
     if (xterm) xterm.focus();
   });
 
   // Periodic session list refresh
-  sessionRefreshTimer = setInterval(refreshSessions, SESSION_REFRESH_MS);
+  sessionRefreshTimer = setInterval(() => TM.sessions.refreshSessions(), SESSION_REFRESH_MS);
 })();
