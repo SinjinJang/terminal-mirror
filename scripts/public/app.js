@@ -1305,14 +1305,37 @@
   // responded to these queries.  If xterm.js sees them it will generate its own
   // DA responses, which travel back through the WebSocket to the PTY and appear
   // as garbage text (e.g. "1;2c") at the shell prompt.
-  const latin1Decoder = new TextDecoder('iso-8859-1');
-  const DA_QUERY_RE = /\x1b\[[>=]?[\d;]*c/g;
+  //
+  // Operates directly on Uint8Array bytes to avoid TextDecoder('iso-8859-1')
+  // which maps to windows-1252 and corrupts bytes 0x80-0x9F (UTF-8
+  // continuation bytes) when re-encoding via charCodeAt().
   function stripDAQueries(buf) {
-    const str = latin1Decoder.decode(buf);
-    const stripped = str.replace(DA_QUERY_RE, '');
-    if (stripped.length === str.length) return buf;
-    const out = new Uint8Array(stripped.length);
-    for (let i = 0; i < stripped.length; i++) out[i] = stripped.charCodeAt(i);
+    // Scan for ESC [ [>=]? [0-9;]* c  patterns and collect ranges to remove.
+    const ranges = []; // [start, end) pairs
+    for (let i = 0; i < buf.length - 1; i++) {
+      if (buf[i] !== 0x1b || buf[i + 1] !== 0x5b) continue; // ESC [
+      let j = i + 2;
+      // optional > or =
+      if (j < buf.length && (buf[j] === 0x3e || buf[j] === 0x3d)) j++;
+      // digits and semicolons
+      while (j < buf.length && ((buf[j] >= 0x30 && buf[j] <= 0x39) || buf[j] === 0x3b)) j++;
+      // final byte 'c'
+      if (j < buf.length && buf[j] === 0x63) {
+        ranges.push(i, j + 1);
+        i = j; // skip past this match
+      }
+    }
+    if (ranges.length === 0) return buf;
+    let removed = 0;
+    for (let k = 0; k < ranges.length; k += 2) removed += ranges[k + 1] - ranges[k];
+    const out = new Uint8Array(buf.length - removed);
+    let src = 0, dst = 0;
+    for (let k = 0; k < ranges.length; k += 2) {
+      const copyLen = ranges[k] - src;
+      if (copyLen > 0) { out.set(buf.subarray(src, ranges[k]), dst); dst += copyLen; }
+      src = ranges[k + 1];
+    }
+    if (src < buf.length) out.set(buf.subarray(src), dst);
     return out;
   }
 
