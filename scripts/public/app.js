@@ -150,11 +150,24 @@
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
     if (!textViewEnabled) {
+      const wasAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
+      const prevViewportY = xterm.buffer.active.viewportY;
       fitAddon.fit();
-    }
-    const targetCols = serverCols !== null ? serverCols : xterm.cols;
-    if (xterm.cols !== targetCols) {
-      xterm.resize(targetCols, xterm.rows);
+      const targetCols = serverCols !== null ? serverCols : xterm.cols;
+      if (xterm.cols !== targetCols) {
+        xterm.resize(targetCols, xterm.rows);
+      }
+      // Restore scroll position after all reflows complete
+      if (wasAtBottom) {
+        xterm.scrollToBottom();
+      } else {
+        xterm.scrollToLine(prevViewportY);
+      }
+    } else {
+      const targetCols = serverCols !== null ? serverCols : xterm.cols;
+      if (xterm.cols !== targetCols) {
+        xterm.resize(targetCols, xterm.rows);
+      }
     }
     updateSizeDisplay();
   }
@@ -296,9 +309,13 @@
       fitTerminal();
       renderCommentOverlays();
     });
+    let resizeDebounce = null;
     new ResizeObserver(() => {
-      fitTerminal();
-      renderCommentOverlays();
+      clearTimeout(resizeDebounce);
+      resizeDebounce = setTimeout(() => {
+        fitTerminal();
+        renderCommentOverlays();
+      }, 50);
     }).observe(terminalPanel);
 
     // Ctrl+C with selection → clipboard copy (instead of SIGINT)
