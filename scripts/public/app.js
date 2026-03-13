@@ -1,11 +1,8 @@
 (function() {
   const {
-    MAX_SELECTED_TEXT, MAX_SELECTED_TEXT_DISPLAY, MAX_RECONNECT,
-    COMMENT_COLORS, SETTINGS_KEY, SHORTCUTS_KEY, DEFAULT_SHORTCUTS,
-    SESSION_REFRESH_MS, MOBILE_BREAKPOINT, DEFAULT_SETTINGS, TEXT_VIEW_DEBOUNCE_MS,
+    MAX_SELECTED_TEXT, SESSION_REFRESH_MS, MOBILE_BREAKPOINT, TEXT_VIEW_DEBOUNCE_MS,
   } = TM.constants;
 
-  const urlParams = new URLSearchParams(window.location.search);
   let isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
 
   // ── State ──
@@ -24,23 +21,7 @@
   let currentSessionPid = null;
   let sessionRefreshTimer = null;
 
-  const { clampNum, loadSettings, saveSettings } = TM.settings;
   const { showToast, copyToClipboard } = TM.utils;
-
-  function applySettings(s) {
-    if (!xterm) return;
-    xterm.options.fontSize = s.fontSize;
-    xterm.options.lineHeight = s.lineHeight;
-    xterm.options.scrollback = s.scrollback;
-    if (textViewEnabled) {
-      textViewContainer.style.fontSize = s.fontSize + 'px';
-      textViewContainer.style.lineHeight = String(s.lineHeight);
-    }
-    fitTerminal();
-    renderCommentOverlays();
-  }
-
-  let currentSettings = loadSettings();
 
   // ── DOM refs ──
   const terminalPanel = document.getElementById('terminalPanel');
@@ -63,16 +44,6 @@
   const scrollBottomBtn = document.getElementById('scrollBottomBtn');
   const textViewContainer = document.getElementById('textViewContainer');
   const toggleViewBtn = document.getElementById('toggleViewBtn');
-  const settingsBtn = document.getElementById('settingsBtn');
-  const settingsPanel = document.getElementById('settingsPanel');
-  const fontSizeRange = document.getElementById('fontSizeRange');
-  const fontSizeValue = document.getElementById('fontSizeValue');
-  const lineHeightRange = document.getElementById('lineHeightRange');
-  const lineHeightValue = document.getElementById('lineHeightValue');
-  const scrollbackInput = document.getElementById('scrollbackInput');
-  const colsInput = document.getElementById('colsInput');
-  const colsValue = document.getElementById('colsValue');
-  const settingsReset = document.getElementById('settingsReset');
   const sessionTabsInner = document.getElementById('sessionTabsInner');
   const shortcutBarInner = document.getElementById('shortcutBarInner');
   const shortcutEditBtn = document.getElementById('shortcutEditBtn');
@@ -110,18 +81,7 @@
         xterm.resize(targetCols, xterm.rows);
       }
     }
-    updateSizeDisplay();
-  }
-
-  function sendTerminalResize(cols) {
-    if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
-    if (cols < 1) return;
-    terminalWs.send(JSON.stringify({ type: 'resize', cols }));
-  }
-
-  function updateSizeDisplay() {
-    if (!xterm) return;
-    colsValue.textContent = xterm.cols;
+    TM.settingsPanel.updateSizeDisplay();
   }
 
   // ── Text view mode (mobile) ──
@@ -209,6 +169,7 @@
   }
 
   function initXterm() {
+    const currentSettings = TM.settingsPanel.getCurrentSettings();
     xterm = new window.Terminal({
       theme: {
         background: '#0a0a0a',
@@ -546,73 +507,7 @@
 
   document.addEventListener('mousedown', (e) => {
     TM.comments.handleOutsideClick(e);
-    if (settingsPanel.classList.contains('open') &&
-        !settingsPanel.contains(e.target) &&
-        e.target !== settingsBtn) {
-      settingsPanel.classList.remove('open');
-    }
-  });
-
-  // ── Settings panel ──
-  function syncSettingsUI(s) {
-    fontSizeRange.value = s.fontSize;
-    fontSizeValue.textContent = s.fontSize;
-    lineHeightRange.value = s.lineHeight;
-    lineHeightValue.textContent = s.lineHeight;
-    scrollbackInput.value = s.scrollback;
-  }
-
-  function syncTerminalUI() {
-    if (!xterm) return;
-    colsInput.value = xterm.cols;
-    updateSizeDisplay();
-  }
-
-  syncSettingsUI(currentSettings);
-
-  settingsBtn.addEventListener('click', () => {
-    settingsPanel.classList.toggle('open');
-  });
-
-  settingsPanel.addEventListener('keydown', (e) => {
-    e.stopPropagation();
-  });
-
-  fontSizeRange.addEventListener('input', () => {
-    const v = parseInt(fontSizeRange.value, 10);
-    currentSettings.fontSize = v;
-    fontSizeValue.textContent = v;
-    applySettings(currentSettings);
-    saveSettings(currentSettings);
-  });
-
-  lineHeightRange.addEventListener('input', () => {
-    const v = parseFloat(lineHeightRange.value);
-    currentSettings.lineHeight = Math.round(v * 10) / 10;
-    lineHeightValue.textContent = currentSettings.lineHeight;
-    applySettings(currentSettings);
-    saveSettings(currentSettings);
-  });
-
-  scrollbackInput.addEventListener('input', () => {
-    const v = clampNum(parseInt(scrollbackInput.value, 10) || DEFAULT_SETTINGS.scrollback, 1000, 100000);
-    currentSettings.scrollback = v;
-    applySettings(currentSettings);
-    saveSettings(currentSettings);
-  });
-
-  colsInput.addEventListener('change', () => {
-    const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
-    colsInput.value = v;
-    sendTerminalResize(v);
-  });
-
-  settingsReset.addEventListener('click', () => {
-    currentSettings = { ...DEFAULT_SETTINGS };
-    syncSettingsUI(currentSettings);
-    applySettings(currentSettings);
-    saveSettings(currentSettings);
-    showToast('Settings reset to defaults');
+    TM.settingsPanel.handleOutsideClick(e);
   });
 
   // ── Wrapper status indicator ──
@@ -624,6 +519,17 @@
   }
 
   // ── Init modules ──
+  TM.settingsPanel.init({
+    state: {
+      get xterm() { return xterm; },
+      get terminalWs() { return terminalWs; },
+      get textViewEnabled() { return textViewEnabled; },
+    },
+    fitTerminal,
+    renderCommentOverlays: () => renderCommentOverlays(),
+    dom: { textViewContainer },
+  });
+
   TM.shortcuts.init({
     state: {
       get terminalWs() { return terminalWs; },
@@ -631,7 +537,6 @@
     },
     dom: { shortcutBarInner, shortcutEditBtn },
   });
-
 
   TM.comments.init({
     state: {
@@ -673,7 +578,7 @@
       get submitted() { return submitted; },
     },
     fitTerminal,
-    syncTerminalUI,
+    syncTerminalUI: () => TM.settingsPanel.syncTerminalUI(),
     updateWrapperStatus,
     showToast,
     refreshSessions: () => TM.sessions.refreshSessions(),
