@@ -356,6 +356,7 @@
           if (sel) {
             copyToClipboard(sel);
             xterm.clearSelection();
+            xterm.focus();
             cachedSelectionText = '';
             if (clearCacheTimer) { clearTimeout(clearCacheTimer); clearCacheTimer = null; }
             return false;
