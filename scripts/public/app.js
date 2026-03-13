@@ -1121,7 +1121,8 @@
       tab.addEventListener('click', () => {
         const pid = parseInt(tab.dataset.pid, 10);
         if (!isNaN(pid)) switchToSession(pid);
-        if (xterm) xterm.focus();
+        if (textViewEnabled) messageInput.focus();
+        else if (xterm) xterm.focus();
       });
 
       tab.addEventListener('dblclick', (e) => {
@@ -1298,19 +1299,38 @@
   // Kept outside connectTerminalWs so reconnects can cancel pending RAF.
   let writeBuf = [];
   let writeRaf = null;
+
+  // Strip DA (Device Attributes) query sequences from terminal output before
+  // writing to xterm.js.  This is a mirror app — the original terminal already
+  // responded to these queries.  If xterm.js sees them it will generate its own
+  // DA responses, which travel back through the WebSocket to the PTY and appear
+  // as garbage text (e.g. "1;2c") at the shell prompt.
+  const latin1Decoder = new TextDecoder('iso-8859-1');
+  const DA_QUERY_RE = /\x1b\[[>=]?[\d;]*c/g;
+  function stripDAQueries(buf) {
+    const str = latin1Decoder.decode(buf);
+    const stripped = str.replace(DA_QUERY_RE, '');
+    if (stripped.length === str.length) return buf;
+    const out = new Uint8Array(stripped.length);
+    for (let i = 0; i < stripped.length; i++) out[i] = stripped.charCodeAt(i);
+    return out;
+  }
+
   function flushWrites() {
     writeRaf = null;
     if (!xterm || writeBuf.length === 0) return;
+    let buf;
     if (writeBuf.length === 1) {
-      xterm.write(writeBuf[0]);
+      buf = writeBuf[0];
     } else {
       let len = 0;
       for (const c of writeBuf) len += c.length;
-      const combined = new Uint8Array(len);
+      buf = new Uint8Array(len);
       let off = 0;
-      for (const c of writeBuf) { combined.set(c, off); off += c.length; }
-      xterm.write(combined);
+      for (const c of writeBuf) { buf.set(c, off); off += c.length; }
     }
+    buf = stripDAQueries(buf);
+    if (buf.length > 0) xterm.write(buf);
     writeBuf = [];
     scheduleTextViewUpdate();
   }
@@ -1344,7 +1364,8 @@
           // Flush pending buffer first to preserve data ordering.
           if (document.hidden) {
             if (writeBuf.length > 0) flushWrites();
-            xterm.write(new Uint8Array(e.data));
+            const cleaned = stripDAQueries(new Uint8Array(e.data));
+            if (cleaned.length > 0) xterm.write(cleaned);
             scheduleTextViewUpdate();
           } else {
             writeBuf.push(new Uint8Array(e.data));
