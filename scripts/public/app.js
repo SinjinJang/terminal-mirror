@@ -51,8 +51,6 @@
   // ── xterm.js setup ──
   let lastMousePos = { x: 0, y: 0 };
   let terminalWs = null;
-  let renderGutterMarkers = () => {};
-  let renderInlineComments = () => {};
   let renderCommentOverlays = () => {};
   let expandedCommentId = null;
   let gutterDragging = false;
@@ -452,8 +450,6 @@
 
     // Init comment renderers with DOM elements
     TM.comments.initRenderers(xtermContainer);
-    renderGutterMarkers = TM.comments.renderGutterMarkers;
-    renderInlineComments = TM.comments.renderInlineComments;
     renderCommentOverlays = TM.comments.renderCommentOverlays;
 
     // ── Scroll-to-bottom button logic ──
