@@ -1121,7 +1121,7 @@
       tab.addEventListener('click', () => {
         const pid = parseInt(tab.dataset.pid, 10);
         if (!isNaN(pid)) switchToSession(pid);
-        messageInput.focus();
+        if (xterm) xterm.focus();
       });
 
       tab.addEventListener('dblclick', (e) => {
