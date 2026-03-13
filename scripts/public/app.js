@@ -104,6 +104,7 @@
   const terminalPanel = document.getElementById('terminalPanel');
   const xtermContainer = document.getElementById('xtermContainer');
   const loadingState = document.getElementById('loadingState');
+  const connectingOverlay = document.getElementById('connectingOverlay');
   const doneBtn = document.getElementById('doneBtn');
   const floatBtn = document.getElementById('floatBtn');
   const commentPopup = document.getElementById('commentPopup');
@@ -1241,6 +1242,9 @@
     commentReconnects = 0;
     serverShutdown = false;
 
+    // Show connecting spinner
+    connectingOverlay.classList.remove('hidden');
+
     // Connect to new session
     connectTerminalWs();
     connectCommentWs();
@@ -1378,6 +1382,7 @@
     terminalWs.onopen = () => {
       wsStatus.style.background = '#9ece6a';
       terminalReconnects = 0;
+      connectingOverlay.classList.add('hidden');
     };
 
     terminalWs.onmessage = (e) => {
