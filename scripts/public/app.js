@@ -1140,16 +1140,7 @@
     if (pid === currentSessionPid) return;
 
     // Close current WebSocket connections
-    if (terminalWs) {
-      terminalWs.onclose = null; // prevent reconnect
-      terminalWs.close();
-      terminalWs = null;
-    }
-    if (commentWs) {
-      commentWs.onclose = null;
-      commentWs.close();
-      commentWs = null;
-    }
+    TM.websocket.closeAll();
 
     // Reset terminal state
     if (xterm) {
@@ -1176,17 +1167,11 @@
       tab.classList.toggle('active', tab.dataset.pid === String(pid));
     }
 
-    // Reset reconnect counters
-    terminalReconnects = 0;
-    commentReconnects = 0;
-    serverShutdown = false;
-
-    // Show connecting spinner
+    // Reset reconnect counters and connect to new session
+    TM.websocket.resetCounters();
     connectingOverlay.classList.remove('hidden');
-
-    // Connect to new session
-    connectTerminalWs();
-    connectCommentWs();
+    TM.websocket.connectTerminalWs();
+    TM.websocket.connectCommentWs();
   }
 
   document.getElementById('refreshSessionsBtn').addEventListener('click', async function () {
@@ -1225,203 +1210,6 @@
     }
   });
 
-
-  // ── WebSocket connections ──
-  let commentWs = null;
-  let terminalReconnects = 0;
-  let commentReconnects = 0;
-  let serverShutdown = false;
-
-  function handleShutdown() {
-    serverShutdown = true;
-    if (sessionRefreshTimer) { clearInterval(sessionRefreshTimer); sessionRefreshTimer = null; }
-    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:1.2em;">Server stopped. You can close this tab.</div>';
-  }
-
-  // Batch binary writes per animation frame to avoid cursor flicker.
-  // Kept outside connectTerminalWs so reconnects can cancel pending RAF.
-  let writeBuf = [];
-  let writeRaf = null;
-
-  // Strip DA (Device Attributes) query sequences from terminal output before
-  // writing to xterm.js.  This is a mirror app — the original terminal already
-  // responded to these queries.  If xterm.js sees them it will generate its own
-  // DA responses, which travel back through the WebSocket to the PTY and appear
-  // as garbage text (e.g. "1;2c") at the shell prompt.
-  //
-  // Operates directly on Uint8Array bytes to avoid TextDecoder('iso-8859-1')
-  // which maps to windows-1252 and corrupts bytes 0x80-0x9F (UTF-8
-  // continuation bytes) when re-encoding via charCodeAt().
-  function stripDAQueries(buf) {
-    // Scan for ESC [ [>=]? [0-9;]* c  patterns and collect ranges to remove.
-    const ranges = []; // [start, end) pairs
-    for (let i = 0; i < buf.length - 1; i++) {
-      if (buf[i] !== 0x1b || buf[i + 1] !== 0x5b) continue; // ESC [
-      let j = i + 2;
-      // optional > or =
-      if (j < buf.length && (buf[j] === 0x3e || buf[j] === 0x3d)) j++;
-      // digits and semicolons
-      while (j < buf.length && ((buf[j] >= 0x30 && buf[j] <= 0x39) || buf[j] === 0x3b)) j++;
-      // final byte 'c'
-      if (j < buf.length && buf[j] === 0x63) {
-        ranges.push(i, j + 1);
-        i = j; // skip past this match
-      }
-    }
-    if (ranges.length === 0) return buf;
-    let removed = 0;
-    for (let k = 0; k < ranges.length; k += 2) removed += ranges[k + 1] - ranges[k];
-    const out = new Uint8Array(buf.length - removed);
-    let src = 0, dst = 0;
-    for (let k = 0; k < ranges.length; k += 2) {
-      const copyLen = ranges[k] - src;
-      if (copyLen > 0) { out.set(buf.subarray(src, ranges[k]), dst); dst += copyLen; }
-      src = ranges[k + 1];
-    }
-    if (src < buf.length) out.set(buf.subarray(src), dst);
-    return out;
-  }
-
-  function flushWrites() {
-    writeRaf = null;
-    if (!xterm || writeBuf.length === 0) return;
-    let buf;
-    if (writeBuf.length === 1) {
-      buf = writeBuf[0];
-    } else {
-      let len = 0;
-      for (const c of writeBuf) len += c.length;
-      buf = new Uint8Array(len);
-      let off = 0;
-      for (const c of writeBuf) { buf.set(c, off); off += c.length; }
-    }
-    buf = stripDAQueries(buf);
-    if (buf.length > 0) xterm.write(buf);
-    writeBuf = [];
-    scheduleTextViewUpdate();
-  }
-  function cancelPendingWrites() {
-    if (writeRaf) { cancelAnimationFrame(writeRaf); writeRaf = null; }
-    writeBuf = [];
-  }
-
-  function connectTerminalWs() {
-    if (!currentSessionPid) return;
-    if (terminalWs) {
-      terminalWs.onclose = null;
-      terminalWs.close();
-      terminalWs = null;
-    }
-    cancelPendingWrites();
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams({ session: String(currentSessionPid) });
-    terminalWs = new WebSocket(`${proto}//${location.host}/ws/terminal?${params.toString()}`);
-    terminalWs.binaryType = 'arraybuffer';
-
-    terminalWs.onopen = () => {
-      wsStatus.style.background = '#9ece6a';
-      terminalReconnects = 0;
-      connectingOverlay.classList.add('hidden');
-    };
-
-    terminalWs.onmessage = (e) => {
-      if (e.data instanceof ArrayBuffer) {
-        if (xterm) {
-          // Skip batching when tab is hidden (RAF won't fire).
-          // Flush pending buffer first to preserve data ordering.
-          if (document.hidden) {
-            if (writeBuf.length > 0) flushWrites();
-            const cleaned = stripDAQueries(new Uint8Array(e.data));
-            if (cleaned.length > 0) xterm.write(cleaned);
-            scheduleTextViewUpdate();
-          } else {
-            writeBuf.push(new Uint8Array(e.data));
-            if (!writeRaf) writeRaf = requestAnimationFrame(flushWrites);
-          }
-        }
-      } else {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.type === 'shutdown') { handleShutdown(); return; }
-          if (msg.type === 'resize' && xterm) {
-            serverCols = msg.cols;
-            fitTerminal();
-            syncTerminalUI();
-          }
-          if (msg.type === 'wrapper_status') {
-            updateWrapperStatus(msg.connected);
-            if (!msg.connected && msg.exitCode !== undefined) {
-              showToast('Wrapper process exited (code ' + msg.exitCode + ')');
-              if (xterm) { xterm.reset(); xterm.clear(); }
-              // Auto-switch to another session after brief delay for server cleanup
-              setTimeout(async () => {
-                const sessions = await refreshSessions();
-                const other = sessions.find(s => s.pid !== currentSessionPid);
-                if (other) switchToSession(other.pid);
-              }, 1000);
-            }
-          }
-        } catch {}
-      }
-    };
-
-    const sessionPidAtConnect = currentSessionPid;
-    terminalWs.onclose = () => {
-      flushWrites();
-      wsStatus.style.background = '#555';
-      if (serverShutdown) return;
-      // Only reconnect if we're still on the same session
-      if (currentSessionPid !== sessionPidAtConnect) return;
-      terminalReconnects++;
-      if (terminalReconnects <= MAX_RECONNECT) {
-        const delay = Math.min(2000 * Math.pow(2, terminalReconnects - 1), 30000);
-        setTimeout(connectTerminalWs, delay);
-      }
-    };
-
-    terminalWs.onerror = () => {
-      wsStatus.style.background = '#f7768e';
-    };
-  }
-
-  function connectCommentWs() {
-    if (!currentSessionPid) return;
-    if (commentWs) {
-      commentWs.onclose = null;
-      commentWs.close();
-      commentWs = null;
-    }
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams({ session: String(currentSessionPid) });
-    commentWs = new WebSocket(`${proto}//${location.host}/ws/comments?${params.toString()}`);
-
-    commentWs.onopen = () => {
-      commentReconnects = 0;
-    };
-
-    commentWs.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'shutdown') { handleShutdown(); return; }
-        if (msg.type === 'comments' && msg.comments) {
-          if (msg.batchId && knownBatchIds.has(msg.batchId)) return;
-          submitted.push(...msg.comments);
-          renderCommentOverlays();
-          updateBadge();
-        }
-      } catch {}
-    };
-
-    const sessionPidAtConnect = currentSessionPid;
-    commentWs.onclose = () => {
-      if (currentSessionPid !== sessionPidAtConnect) return;
-      commentReconnects++;
-      if (commentReconnects <= MAX_RECONNECT) {
-        const delay = Math.min(2000 * Math.pow(2, commentReconnects - 1), 30000);
-        setTimeout(connectCommentWs, delay);
-      }
-    };
-  }
 
   // ── Shortcut bar ──
   shortcuts = loadShortcuts();
@@ -1609,6 +1397,33 @@
   }
 
   shortcutEditBtn.addEventListener('click', openShortcutEditor);
+
+  // ── Init WebSocket module ──
+  TM.websocket.init({
+    state: {
+      get xterm() { return xterm; },
+      get terminalWs() { return terminalWs; },
+      set terminalWs(v) { terminalWs = v; },
+      get currentSessionPid() { return currentSessionPid; },
+      get serverCols() { return serverCols; },
+      set serverCols(v) { serverCols = v; },
+      get knownBatchIds() { return knownBatchIds; },
+      get submitted() { return submitted; },
+    },
+    fitTerminal,
+    syncTerminalUI,
+    updateWrapperStatus,
+    showToast,
+    refreshSessions,
+    switchToSession,
+    renderCommentOverlays: () => renderCommentOverlays(),
+    updateBadge,
+    scheduleTextViewUpdate,
+    clearSessionRefreshTimer() {
+      if (sessionRefreshTimer) { clearInterval(sessionRefreshTimer); sessionRefreshTimer = null; }
+    },
+    dom: { wsStatus, connectingOverlay },
+  });
 
   // ── Init ──
   loadingState.remove();
