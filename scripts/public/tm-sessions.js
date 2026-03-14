@@ -114,6 +114,7 @@ TM.sessions = (function() {
       tab.appendChild(label);
 
       tab.addEventListener('click', () => {
+        if (renamingTabPid === s.pid) return;
         const pid = parseInt(tab.dataset.pid, 10);
         if (!isNaN(pid)) switchToSession(pid);
         if (ctx.state.textViewEnabled) ctx.dom.messageInput.focus();
@@ -135,8 +136,7 @@ TM.sessions = (function() {
   }
 
   function startTabRename(tab, session) {
-    const labelEl = tab.querySelector('.session-tab-label');
-    if (!labelEl || tab.querySelector('.session-tab-label-input')) return;
+    if (renamingTabPid !== null) return;
 
     renamingTabPid = session.pid;
 
@@ -145,8 +145,10 @@ TM.sessions = (function() {
     input.value = session.label || '';
     input.placeholder = formatSessionLabel({ ...session, label: null });
 
-    labelEl.style.display = 'none';
-    tab.insertBefore(input, labelEl.nextSibling);
+    // Insert input as sibling of the button (not inside it) to avoid
+    // Space key triggering native button activation and stealing focus.
+    tab.style.display = 'none';
+    tab.parentNode.insertBefore(input, tab.nextSibling);
     input.focus();
     input.select();
 
@@ -155,7 +157,7 @@ TM.sessions = (function() {
       renamingTabPid = null;
       const newLabel = input.value.trim();
       input.remove();
-      labelEl.style.display = '';
+      tab.style.display = '';
 
       const oldLabel = session.label || '';
       if (newLabel !== oldLabel) {
@@ -169,6 +171,7 @@ TM.sessions = (function() {
 
     input.addEventListener('blur', finish);
     input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
       if (e.key === 'Escape') { input.value = session.label || ''; input.blur(); }
     });
