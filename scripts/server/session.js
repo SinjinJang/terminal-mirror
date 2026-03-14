@@ -61,7 +61,9 @@ function getStateRestorationPrefix(session) {
 }
 
 function getStateCorrectionSuffix(session) {
-  return Buffer.from(session.termState.cursorHidden ? '\x1b[?25l' : '\x1b[?25h');
+  return Buffer.from(session.termState.cursorHidden
+    ? '\x1b[?25l\x1b[?12l'
+    : '\x1b[?25h\x1b[?12h');
 }
 
 function appendReplayBuffer(session, buf) {

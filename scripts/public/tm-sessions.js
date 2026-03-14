@@ -199,6 +199,7 @@ TM.sessions = (function() {
     if (xterm) {
       xterm.reset();
       xterm.clear();
+      xterm.write('\x1b[?25l');
     }
     ctx.state.serverCols = null;
     ctx.dom.textViewContainer.innerHTML = '';
