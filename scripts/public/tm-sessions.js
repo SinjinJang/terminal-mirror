@@ -117,8 +117,6 @@ TM.sessions = (function() {
         if (renamingTabPid === s.pid) return;
         const pid = parseInt(tab.dataset.pid, 10);
         if (!isNaN(pid)) switchToSession(pid);
-        if (ctx.state.textViewEnabled) ctx.dom.messageInput.focus();
-        else if (ctx.state.xterm) ctx.state.xterm.focus();
       });
 
       tab.addEventListener('dblclick', (e) => {
@@ -223,6 +221,9 @@ TM.sessions = (function() {
     ctx.dom.connectingOverlay.classList.remove('hidden');
     TM.websocket.connectTerminalWs();
     TM.websocket.connectCommentWs();
+
+    if (ctx.state.textViewEnabled) ctx.dom.messageInput.focus();
+    else if (ctx.state.xterm) ctx.state.xterm.focus();
   }
 
   function updateSpawnButton() {
