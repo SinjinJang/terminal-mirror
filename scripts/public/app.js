@@ -62,12 +62,18 @@
     if (!textViewEnabled) {
       const wasAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
       const prevViewportY = xterm.buffer.active.viewportY;
-      fitAddon.fit();
-      const targetCols = serverCols !== null ? serverCols : xterm.cols;
-      if (xterm.cols !== targetCols) {
-        xterm.resize(targetCols, xterm.rows);
+      // Use proposeDimensions() to calculate the target size without triggering
+      // an intermediate resize. This avoids a double-reflow (fit→containerCols,
+      // then resize→serverCols) that can corrupt the saved scroll position.
+      const dims = fitAddon.proposeDimensions();
+      if (dims) {
+        const targetCols = serverCols !== null ? serverCols : dims.cols;
+        const targetRows = dims.rows;
+        if (xterm.cols !== targetCols || xterm.rows !== targetRows) {
+          xterm.resize(targetCols, targetRows);
+        }
       }
-      // Restore scroll position after all reflows complete
+      // Restore scroll position after reflow
       if (wasAtBottom) {
         xterm.scrollToBottom();
       } else {

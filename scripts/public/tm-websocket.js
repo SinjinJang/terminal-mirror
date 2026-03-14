@@ -112,6 +112,9 @@ TM.websocket = (function() {
           const msg = JSON.parse(e.data);
           if (msg.type === 'shutdown') { handleShutdown(); return; }
           if (msg.type === 'resize' && ctx.state.xterm) {
+            // Flush pending terminal writes so fitTerminal() sees the latest
+            // buffer state when saving/restoring scroll position.
+            if (writeBuf.length > 0) flushWrites();
             ctx.state.serverCols = msg.cols;
             ctx.fitTerminal();
             ctx.syncTerminalUI();
