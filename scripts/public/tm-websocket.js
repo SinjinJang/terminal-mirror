@@ -15,16 +15,32 @@ TM.websocket = (function() {
     ctx = context;
   }
 
-  function stripDAQueries(buf) {
+  // Strip sequences that should not reach the mirror terminal.
+  // - DA responses  (ESC [ >? digits ; digits c)
+  // - ED3 / clear-scrollback (ESC [ 3 J) — sent by programs like
+  //   Claude Code on every redraw; wiping the scrollback destroys
+  //   the history the viewer is reading.
+  function stripTerminalNoise(buf) {
     const ranges = [];
     for (let i = 0; i < buf.length - 1; i++) {
       if (buf[i] !== 0x1b || buf[i + 1] !== 0x5b) continue;
       let j = i + 2;
-      if (j < buf.length && (buf[j] === 0x3e || buf[j] === 0x3d)) j++;
-      while (j < buf.length && ((buf[j] >= 0x30 && buf[j] <= 0x39) || buf[j] === 0x3b)) j++;
-      if (j < buf.length && buf[j] === 0x63) {
-        ranges.push(i, j + 1);
-        i = j;
+
+      // ── DA response: ESC [ (>|=)? digits (;digits)* c ──
+      let k = j;
+      if (k < buf.length && (buf[k] === 0x3e || buf[k] === 0x3d)) k++;
+      while (k < buf.length && ((buf[k] >= 0x30 && buf[k] <= 0x39) || buf[k] === 0x3b)) k++;
+      if (k < buf.length && buf[k] === 0x63) {
+        ranges.push(i, k + 1);
+        i = k;
+        continue;
+      }
+
+      // ── ED3 clear-scrollback: ESC [ 3 J ──
+      if (j + 1 < buf.length && buf[j] === 0x33 && buf[j + 1] === 0x4a) {
+        ranges.push(i, j + 2);
+        i = j + 1;
+        continue;
       }
     }
     if (ranges.length === 0) return buf;
@@ -55,7 +71,7 @@ TM.websocket = (function() {
       let off = 0;
       for (const c of writeBuf) { buf.set(c, off); off += c.length; }
     }
-    buf = stripDAQueries(buf);
+    buf = stripTerminalNoise(buf);
     if (buf.length > 0) xterm.write(buf);
     writeBuf = [];
     ctx.scheduleTextViewUpdate();
@@ -99,7 +115,7 @@ TM.websocket = (function() {
         if (xterm) {
           if (document.hidden) {
             if (writeBuf.length > 0) flushWrites();
-            const cleaned = stripDAQueries(new Uint8Array(e.data));
+            const cleaned = stripTerminalNoise(new Uint8Array(e.data));
             if (cleaned.length > 0) xterm.write(cleaned);
             ctx.scheduleTextViewUpdate();
           } else {
@@ -214,5 +230,5 @@ TM.websocket = (function() {
     serverShutdown = false;
   }
 
-  return { init, connectTerminalWs, connectCommentWs, closeAll, resetCounters, stripDAQueries };
+  return { init, connectTerminalWs, connectCommentWs, closeAll, resetCounters, stripTerminalNoise };
 })();
