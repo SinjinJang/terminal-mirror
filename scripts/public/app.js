@@ -191,6 +191,7 @@
 
     xtermContainer.style.display = 'block';
     xterm.open(xtermContainer);
+    xterm.write('\x1b[?25l');
     fitTerminal();
 
     // Toggle view button

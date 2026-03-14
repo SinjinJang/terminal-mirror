@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn: spawnChild } = require('child_process');
-const { resolveNextPoll, broadcast, getReplayBuffer, getStateRestorationPrefix } = require('./session');
+const { resolveNextPoll, broadcast, getReplayBuffer, getStateRestorationPrefix, getStateCorrectionSuffix } = require('./session');
 const { sendToWrapper, discoverAndConnect } = require('./wrapper-connection');
 
 const POLL_TIMEOUT_MS = 120_000;
@@ -326,6 +326,7 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnedChildr
         if (statePrefix) ws.send(statePrefix);
         const replay = getReplayBuffer(session);
         if (replay) ws.send(replay);
+        ws.send(getStateCorrectionSuffix(session));
 
         ws.on('message', (msg) => {
           try {

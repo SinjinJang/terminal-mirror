@@ -45,27 +45,23 @@ function trackTerminalState(session, buf) {
 function getStateRestorationPrefix(session) {
   const replay = getReplayBuffer(session);
   let replayAltScreen = false;
-  let replayCursorHidden = false;
 
   if (replay) {
     const str = replay.toString('latin1');
     const lastAltEnter = str.lastIndexOf('\x1b[?1049h');
     const lastAltLeave = str.lastIndexOf('\x1b[?1049l');
     replayAltScreen = lastAltEnter > lastAltLeave;
-
-    const lastCursorHide = str.lastIndexOf('\x1b[?25l');
-    const lastCursorShow = str.lastIndexOf('\x1b[?25h');
-    replayCursorHidden = lastCursorHide > lastCursorShow;
   }
 
   let prefix = '';
   if (session.termState.altScreen && !replayAltScreen) {
     prefix += '\x1b[?1049h';
   }
-  if (session.termState.cursorHidden && !replayCursorHidden) {
-    prefix += '\x1b[?25l';
-  }
   return prefix ? Buffer.from(prefix) : null;
+}
+
+function getStateCorrectionSuffix(session) {
+  return Buffer.from(session.termState.cursorHidden ? '\x1b[?25l' : '\x1b[?25h');
 }
 
 function appendReplayBuffer(session, buf) {
@@ -109,6 +105,7 @@ module.exports = {
   createSession,
   trackTerminalState,
   getStateRestorationPrefix,
+  getStateCorrectionSuffix,
   appendReplayBuffer,
   getReplayBuffer,
   resolveNextPoll,
