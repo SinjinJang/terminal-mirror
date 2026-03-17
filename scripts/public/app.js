@@ -60,24 +60,21 @@
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
     if (!textViewEnabled) {
-      const wasAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
-      const prevViewportY = xterm.buffer.active.viewportY;
-      // Use proposeDimensions() to calculate the target size without triggering
-      // an intermediate resize. This avoids a double-reflow (fit→containerCols,
-      // then resize→serverCols) that can corrupt the saved scroll position.
       const dims = fitAddon.proposeDimensions();
       if (dims) {
         const targetCols = serverCols !== null ? serverCols : dims.cols;
         const targetRows = dims.rows;
         if (xterm.cols !== targetCols || xterm.rows !== targetRows) {
+          const wasAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
+          const prevViewportY = xterm.buffer.active.viewportY;
           xterm.resize(targetCols, targetRows);
+          // Restore scroll position after reflow
+          if (wasAtBottom) {
+            xterm.scrollToBottom();
+          } else {
+            xterm.scrollToLine(prevViewportY);
+          }
         }
-      }
-      // Restore scroll position after reflow
-      if (wasAtBottom) {
-        xterm.scrollToBottom();
-      } else {
-        xterm.scrollToLine(prevViewportY);
       }
     } else {
       const targetCols = serverCols !== null ? serverCols : xterm.cols;
@@ -208,21 +205,19 @@
     // Auto-enable text view on mobile
     if (isMobile) setTextViewMode(true);
 
-    window.addEventListener('resize', () => {
-      const wasMobile = isMobile;
-      isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
-      if (isMobile && !wasMobile) setTextViewMode(true);
-      fitTerminal();
-      renderCommentOverlays();
-    });
     let resizeDebounce = null;
-    new ResizeObserver(() => {
+    function scheduleResize() {
       clearTimeout(resizeDebounce);
       resizeDebounce = setTimeout(() => {
+        const wasMobile = isMobile;
+        isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+        if (isMobile && !wasMobile) setTextViewMode(true);
         fitTerminal();
         renderCommentOverlays();
       }, 50);
-    }).observe(terminalPanel);
+    }
+    window.addEventListener('resize', scheduleResize);
+    new ResizeObserver(scheduleResize).observe(terminalPanel);
 
     // Ctrl+C with selection → clipboard copy (instead of SIGINT)
     // Cache selection text to handle Windows where getSelection() may return
