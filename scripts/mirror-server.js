@@ -210,7 +210,28 @@ function cleanup(exitCode = 0) {
   setTimeout(() => process.exit(exitCode), 100);
 }
 
-process.on('SIGINT', () => { cleanup(130); });
+let sigintReceived = false;
+process.on('SIGINT', () => {
+  if (sigintReceived) {
+    cleanup(130);
+    return;
+  }
+  sigintReceived = true;
+  const rl = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  process.stdout.write('\n');
+  rl.question('서버를 종료하시겠습니까? (y/N) ', (answer) => {
+    rl.close();
+    if (answer.toLowerCase() === 'y') {
+      cleanup(130);
+    } else {
+      sigintReceived = false;
+      process.stdout.write('서버를 계속 실행합니다.\n');
+    }
+  });
+});
 process.on('SIGTERM', () => { cleanup(); });
 if (process.platform === 'win32') {
   process.on('exit', () => { cleanup(); });
