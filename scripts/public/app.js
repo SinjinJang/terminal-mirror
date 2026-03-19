@@ -56,24 +56,23 @@
   let gutterDragging = false;
   let gutterAnchorRow = null;
 
-  // ── Scroll-to-top guard ──
-  // Prevent any non-user-initiated viewport jump to top.
-  let scrollGuardPaused = false;
-  let lastGoodViewportY = 0;
-  let userScrollActive = false;
-  let userScrollTimer = null;
-
   // Fit terminal to container but constrain cols to server PTY width
   function fitTerminal() {
     if (!fitAddon || !xterm) return;
-    scrollGuardPaused = true;
     if (!textViewEnabled) {
       const dims = fitAddon.proposeDimensions();
       if (dims) {
         const targetCols = serverCols !== null ? serverCols : dims.cols;
         const targetRows = dims.rows;
         if (xterm.cols !== targetCols || xterm.rows !== targetRows) {
+          const wasAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
+          const prevViewportY = xterm.buffer.active.viewportY;
           xterm.resize(targetCols, targetRows);
+          if (wasAtBottom) {
+            xterm.scrollToBottom();
+          } else {
+            xterm.scrollToLine(prevViewportY);
+          }
         }
       }
     } else {
@@ -82,8 +81,6 @@
         xterm.resize(targetCols, xterm.rows);
       }
     }
-    lastGoodViewportY = xterm.buffer.active.viewportY;
-    scrollGuardPaused = false;
     TM.settingsPanel.updateSizeDisplay();
   }
 
@@ -198,16 +195,6 @@
     xterm.open(xtermContainer);
     xterm.write('\x1b[?25l');
     fitTerminal();
-
-    // Track user-initiated scrolling (wheel, scrollbar drag)
-    function markUserScroll() {
-      userScrollActive = true;
-      clearTimeout(userScrollTimer);
-      userScrollTimer = setTimeout(() => { userScrollActive = false; }, 300);
-    }
-    xtermContainer.addEventListener('wheel', markUserScroll, { passive: true });
-    xtermContainer.addEventListener('mousedown', markUserScroll);
-    xtermContainer.addEventListener('touchstart', markUserScroll, { passive: true });
 
     // Toggle view button
     toggleViewBtn.addEventListener('click', () => {
@@ -505,15 +492,6 @@
     });
 
     xterm.onScroll(() => {
-      // Scroll-to-top guard: restore previous position on unexpected jumps
-      const y = xterm.buffer.active.viewportY;
-      if (!scrollGuardPaused && y === 0 && lastGoodViewportY > xterm.rows && !userScrollActive) {
-        scrollGuardPaused = true;
-        xterm.scrollToLine(lastGoodViewportY);
-        scrollGuardPaused = false;
-      } else if (!scrollGuardPaused) {
-        lastGoodViewportY = y;
-      }
       if (!isMobile) renderCommentOverlays();
       updateScrollBottomBtn();
     });
