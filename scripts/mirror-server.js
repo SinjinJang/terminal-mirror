@@ -17,7 +17,7 @@ const wrapperConnection = require('./server/wrapper-connection');
 const { setupRoutes } = require('./server/routes');
 
 // ── Constants ──
-const START_PORT = 3456;
+const START_PORT = 19000;
 const MAX_PORT_SCAN = 100;
 const SESSION_SCAN_INTERVAL_MS = 5000;
 
