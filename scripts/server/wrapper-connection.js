@@ -4,6 +4,7 @@ const { discoverSessions, getTokenPath, sessionMarkerExists } = require('../plat
 const {
   createSession, trackTerminalState, appendReplayBuffer, broadcast,
 } = require('./session');
+const { findLabel, removeLabel } = require('./session-labels');
 
 const SOCKET_RECONNECT_MS = 3000;
 const SOCKET_RECONNECT_MAX = 10;
@@ -74,21 +75,25 @@ function handleWrapperMessage(session, msg) {
   if (!msg || !msg.type) return;
 
   switch (msg.type) {
-    case 'hello':
+    case 'hello': {
+      const pid = msg.pid || session.pid;
+      const startedAt = msg.startedAt || null;
+      const persistedLabel = findLabel(pid, startedAt);
       session.wrapperInfo = {
         cwd: msg.cwd || process.cwd(),
         cols: msg.cols || 80,
         rows: msg.rows || 24,
-        pid: msg.pid || session.pid,
+        pid,
         cmd: msg.cmd || '',
-        startedAt: msg.startedAt || null,
-        label: session.wrapperInfo.label || msg.label || null,
+        startedAt,
+        label: session.wrapperInfo.label || persistedLabel || msg.label || null,
       };
       if (msg.token && !session.wrapperToken) {
         session.wrapperToken = msg.token;
       }
       broadcast(session.terminalClients, { type: 'resize', cols: session.wrapperInfo.cols, rows: session.wrapperInfo.rows });
       break;
+    }
 
     case 'scrollback':
     case 'output': {
@@ -140,6 +145,7 @@ function discoverAndConnect() {
         res.end(JSON.stringify({ error: 'Session removed' }));
       }
       sessions.delete(pid);
+      removeLabel(pid, session.wrapperInfo.startedAt);
       process.stderr.write(`Removed stale session PID ${pid}.\n`);
     }
   }

@@ -4,6 +4,7 @@ const os = require('os');
 const { spawn: spawnChild } = require('child_process');
 const { resolveNextPoll, broadcast, getReplayBuffer, getStateRestorationPrefix, getStateCorrectionSuffix } = require('./session');
 const { sendToWrapper, discoverAndConnect } = require('./wrapper-connection');
+const { setLabel, removeLabel } = require('./session-labels');
 
 const POLL_TIMEOUT_MS = 120_000;
 const MAX_BODY_BYTES = 1 * 1024 * 1024;
@@ -119,6 +120,12 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnDetached
         const { label } = JSON.parse(body);
         const trimmed = typeof label === 'string' ? label.trim() : '';
         session.wrapperInfo.label = trimmed ? trimmed.substring(0, MAX_LABEL_LENGTH) : null;
+        const { pid, startedAt, cmd } = session.wrapperInfo;
+        if (session.wrapperInfo.label) {
+          setLabel(pid, startedAt, cmd, session.wrapperInfo.label);
+        } else {
+          removeLabel(pid, startedAt);
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, label: session.wrapperInfo.label }));
       } catch {
