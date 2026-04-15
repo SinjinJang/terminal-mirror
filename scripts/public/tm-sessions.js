@@ -202,6 +202,7 @@ TM.sessions = (function() {
       xterm.write('\x1b[?25l');
     }
     ctx.state.serverCols = null;
+    ctx.state.serverRows = null;
     ctx.dom.textViewContainer.innerHTML = '';
 
     ctx.state.comments = [];

@@ -10,7 +10,7 @@ TM.settingsPanel = (function() {
   // DOM elements (queried once in init)
   let settingsBtn, settingsPanel, fontSizeRange, fontSizeValue;
   let lineHeightRange, lineHeightValue, scrollbackInput;
-  let colsInput, colsValue, settingsReset;
+  let colsInput, colsValue, rowsInput, rowsValue, settingsReset;
 
   function init(context) {
     ctx = context;
@@ -24,6 +24,8 @@ TM.settingsPanel = (function() {
     scrollbackInput = document.getElementById('scrollbackInput');
     colsInput = document.getElementById('colsInput');
     colsValue = document.getElementById('colsValue');
+    rowsInput = document.getElementById('rowsInput');
+    rowsValue = document.getElementById('rowsValue');
     settingsReset = document.getElementById('settingsReset');
 
     syncSettingsUI(currentSettings);
@@ -60,6 +62,7 @@ TM.settingsPanel = (function() {
     const xterm = ctx.state.xterm;
     if (!xterm) return;
     colsInput.value = xterm.cols;
+    rowsInput.value = xterm.rows;
     updateSizeDisplay();
   }
 
@@ -67,13 +70,14 @@ TM.settingsPanel = (function() {
     const xterm = ctx.state.xterm;
     if (!xterm) return;
     colsValue.textContent = xterm.cols;
+    rowsValue.textContent = xterm.rows;
   }
 
-  function sendTerminalResize(cols) {
+  function sendTerminalResize(cols, rows) {
     const ws = ctx.state.terminalWs;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    if (cols < 1) return;
-    ws.send(JSON.stringify({ type: 'resize', cols }));
+    if (cols < 1 || rows < 1) return;
+    ws.send(JSON.stringify({ type: 'resize', cols, rows }));
   }
 
   function handleOutsideClick(e) {
@@ -119,7 +123,13 @@ TM.settingsPanel = (function() {
     colsInput.addEventListener('change', () => {
       const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
       colsInput.value = v;
-      sendTerminalResize(v);
+      sendTerminalResize(v, parseInt(rowsInput.value, 10) || 24);
+    });
+
+    rowsInput.addEventListener('change', () => {
+      const v = clampNum(parseInt(rowsInput.value, 10) || 24, 1, 200);
+      rowsInput.value = v;
+      sendTerminalResize(parseInt(colsInput.value, 10) || 80, v);
     });
 
     settingsReset.addEventListener('click', () => {

@@ -15,6 +15,7 @@
   let xterm = null;
   let fitAddon = null;
   let serverCols = null;
+  let serverRows = null;
   const knownBatchIds = new Set();
 
   // ── Session state ──
@@ -63,7 +64,7 @@
       const dims = fitAddon.proposeDimensions();
       if (dims) {
         const targetCols = serverCols !== null ? serverCols : dims.cols;
-        const targetRows = dims.rows;
+        const targetRows = serverRows !== null ? serverRows : dims.rows;
         if (xterm.cols !== targetCols || xterm.rows !== targetRows) {
           const wasAtBottom = xterm.buffer.active.viewportY + xterm.rows >= xterm.buffer.active.length;
           const prevViewportY = xterm.buffer.active.viewportY;
@@ -575,6 +576,8 @@
       get currentSessionPid() { return currentSessionPid; },
       get serverCols() { return serverCols; },
       set serverCols(v) { serverCols = v; },
+      get serverRows() { return serverRows; },
+      set serverRows(v) { serverRows = v; },
       get knownBatchIds() { return knownBatchIds; },
       get submitted() { return submitted; },
     },
@@ -600,6 +603,8 @@
       get xterm() { return xterm; },
       get serverCols() { return serverCols; },
       set serverCols(v) { serverCols = v; },
+      get serverRows() { return serverRows; },
+      set serverRows(v) { serverRows = v; },
       get comments() { return comments; },
       set comments(v) { comments = v; },
       get submitted() { return submitted; },

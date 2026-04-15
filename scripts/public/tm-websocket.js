@@ -132,6 +132,7 @@ TM.websocket = (function() {
             // buffer state when saving/restoring scroll position.
             if (writeBuf.length > 0) flushWrites();
             ctx.state.serverCols = msg.cols;
+            ctx.state.serverRows = msg.rows;
             ctx.fitTerminal();
             ctx.syncTerminalUI();
           }
