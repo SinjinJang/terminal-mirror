@@ -65,7 +65,7 @@ function requireSession(url, res, sessions) {
   return session;
 }
 
-function setupRoutes(httpServer, { sessions, config, spawnSession, spawnedChildren, auth, remoteMode, getServerPort, cleanup, WebSocket, wss }) {
+function setupRoutes(httpServer, { sessions, config, spawnSession, spawnDetached, spawnedChildren, auth, remoteMode, getServerPort, cleanup, WebSocket, wss }) {
   httpServer.on('request', async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
@@ -236,9 +236,14 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnedChildr
       const child = spawnChild(process.execPath, [wrapperScript, ...colsArgs, ...spawnArgs], {
         cwd: os.homedir(),
         stdio: 'ignore',
+        detached: spawnDetached,
       });
-      spawnedChildren.set(child.pid, child);
-      child.on('exit', () => spawnedChildren.delete(child.pid));
+      if (spawnDetached) {
+        child.unref();
+      } else {
+        spawnedChildren.set(child.pid, child);
+        child.on('exit', () => spawnedChildren.delete(child.pid));
+      }
       process.stderr.write(`Spawned terminal session (PID ${child.pid}): ${spawnArgs.join(' ')} in ${os.homedir()}\n`);
       setTimeout(() => discoverAndConnect(), 500);
       res.writeHead(200, { 'Content-Type': 'application/json' });

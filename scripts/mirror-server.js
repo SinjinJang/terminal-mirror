@@ -42,6 +42,7 @@ let openBrowserFlag = false;
 let remoteMode = false;
 let customPort = null;
 let spawnSession = false;
+let spawnDetached = false;
 let noAuth = false;
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -51,6 +52,8 @@ for (let i = 0; i < rawArgs.length; i++) {
     remoteMode = true;
   } else if (rawArgs[i] === '--spawn') {
     spawnSession = true;
+  } else if (rawArgs[i] === '--spawn-detached') {
+    spawnDetached = true;
   } else if (rawArgs[i] === '--no-auth') {
     noAuth = true;
   } else if ((rawArgs[i] === '--port' || rawArgs[i] === '-p') && rawArgs[i + 1]) {
@@ -66,6 +69,7 @@ for (let i = 0; i < rawArgs.length; i++) {
 if (!openBrowserFlag && config.open) openBrowserFlag = true;
 if (!remoteMode && config.remote) remoteMode = true;
 if (!spawnSession && config.spawn) spawnSession = true;
+if (!spawnDetached && config.spawnDetached) spawnDetached = true;
 if (customPort == null && config.port != null) {
   customPort = parseInt(config.port, 10);
   if (isNaN(customPort) || customPort < 1 || customPort > 65535) {
@@ -115,6 +119,7 @@ setupRoutes(httpServer, {
   sessions,
   config,
   spawnSession,
+  spawnDetached,
   spawnedChildren,
   auth,
   remoteMode,
