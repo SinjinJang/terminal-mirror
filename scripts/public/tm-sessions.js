@@ -3,8 +3,37 @@ TM.sessions = (function() {
   let spawnEnabled = false;
   let renamingTabPid = null;
   let lastSessionsKey = '';
+  const sessionStates = new Map();
 
   let ctx = null;
+
+  function saveCurrentSessionState() {
+    const pid = ctx.state.currentSessionPid;
+    if (pid == null) return;
+    sessionStates.set(pid, {
+      comments: ctx.state.comments,
+      submitted: ctx.state.submitted,
+      knownBatchIds: new Set(ctx.state.knownBatchIds),
+      expandedCommentId: ctx.state.expandedCommentId,
+      nextCommentId: ctx.state.nextCommentId,
+    });
+  }
+
+  function loadSessionState(pid) {
+    const saved = sessionStates.get(pid);
+    ctx.state.comments = saved ? saved.comments : [];
+    ctx.state.submitted = saved ? saved.submitted : [];
+    ctx.state.knownBatchIds.clear();
+    if (saved) {
+      for (const id of saved.knownBatchIds) ctx.state.knownBatchIds.add(id);
+    }
+    ctx.state.expandedCommentId = saved ? saved.expandedCommentId : null;
+    ctx.state.nextCommentId = saved ? saved.nextCommentId : 0;
+  }
+
+  function dropSessionState(pid) {
+    sessionStates.delete(pid);
+  }
 
   function init(context) {
     ctx = context;
@@ -179,6 +208,13 @@ TM.sessions = (function() {
     const sessionsList = await fetchSessions();
     updateSessionTabs(sessionsList);
 
+    if (sessionsList.length > 0) {
+      const livePids = new Set(sessionsList.map(s => s.pid));
+      for (const pid of sessionStates.keys()) {
+        if (!livePids.has(pid)) dropSessionState(pid);
+      }
+    }
+
     if (!ctx.state.currentSessionPid && sessionsList.length > 0) {
       const urlSession = getSessionFromUrl();
       const target = urlSession && sessionsList.some(s => s.pid === urlSession)
@@ -193,6 +229,8 @@ TM.sessions = (function() {
   function switchToSession(pid) {
     if (pid === ctx.state.currentSessionPid) return;
 
+    saveCurrentSessionState();
+
     TM.websocket.closeAll();
 
     const xterm = ctx.state.xterm;
@@ -205,10 +243,7 @@ TM.sessions = (function() {
     ctx.state.serverRows = null;
     ctx.dom.textViewContainer.innerHTML = '';
 
-    ctx.state.comments = [];
-    ctx.state.submitted = [];
-    ctx.state.knownBatchIds.clear();
-    ctx.state.expandedCommentId = null;
+    loadSessionState(pid);
     ctx.renderCommentOverlays();
     ctx.updateBadge();
 

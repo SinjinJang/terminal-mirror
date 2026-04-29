@@ -612,6 +612,8 @@
       get knownBatchIds() { return knownBatchIds; },
       get expandedCommentId() { return expandedCommentId; },
       set expandedCommentId(v) { expandedCommentId = v; },
+      get nextCommentId() { return nextCommentId; },
+      set nextCommentId(v) { nextCommentId = v; },
       get textViewEnabled() { return textViewEnabled; },
     },
     renderCommentOverlays: () => renderCommentOverlays(),
