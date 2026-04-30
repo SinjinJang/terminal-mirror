@@ -74,10 +74,12 @@ TM.settingsPanel = (function() {
   }
 
   function sendTerminalResize(cols, rows) {
-    const ws = ctx.state.terminalWs;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (cols < 1 || rows < 1) return;
-    ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    fetch('/api/resize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cols, rows }),
+    }).catch(() => {});
   }
 
   function handleOutsideClick(e) {
@@ -123,12 +125,16 @@ TM.settingsPanel = (function() {
     colsInput.addEventListener('change', () => {
       const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
       colsInput.value = v;
+      currentSettings.cols = v;
+      saveSettings(currentSettings);
       sendTerminalResize(v, parseInt(rowsInput.value, 10) || 24);
     });
 
     rowsInput.addEventListener('change', () => {
       const v = clampNum(parseInt(rowsInput.value, 10) || 24, 1, 200);
       rowsInput.value = v;
+      currentSettings.rows = v;
+      saveSettings(currentSettings);
       sendTerminalResize(parseInt(colsInput.value, 10) || 80, v);
     });
 

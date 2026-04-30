@@ -13,6 +13,8 @@ TM.settings = (function() {
         fontSize: clampNum(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize, 10, 24),
         lineHeight: clampNum(parsed.lineHeight ?? DEFAULT_SETTINGS.lineHeight, 1.0, 2.0),
         scrollback: clampNum(parsed.scrollback ?? DEFAULT_SETTINGS.scrollback, 1000, 100000),
+        cols: clampNum(parsed.cols ?? DEFAULT_SETTINGS.cols, 1, 400),
+        rows: clampNum(parsed.rows ?? DEFAULT_SETTINGS.rows, 1, 200),
       };
     } catch { return { ...DEFAULT_SETTINGS }; }
   }

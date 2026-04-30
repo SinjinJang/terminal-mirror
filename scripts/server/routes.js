@@ -239,8 +239,24 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnDetached
       }
       const spawnArgs = Array.isArray(spawnCommand) ? spawnCommand : spawnCommand.split(/\s+/);
       const wrapperScript = path.join(__dirname, '..', 'tm-wrapper.js');
-      const colsArgs = config.spawnDefaultCols ? ['--cols', String(config.spawnDefaultCols)] : [];
-      const child = spawnChild(process.execPath, [wrapperScript, ...colsArgs, ...spawnArgs], {
+
+      let reqCols = null, reqRows = null;
+      try {
+        const body = await readBody(req);
+        if (body) {
+          const parsed = JSON.parse(body);
+          const c = parseInt(parsed.cols, 10);
+          const r = parseInt(parsed.rows, 10);
+          if (c > 0 && c <= 400) reqCols = c;
+          if (r > 0 && r <= 200) reqRows = r;
+        }
+      } catch {}
+
+      const effectiveCols = reqCols || config.spawnDefaultCols || null;
+      const sizeArgs = [];
+      if (effectiveCols) sizeArgs.push('--cols', String(effectiveCols));
+      if (reqRows) sizeArgs.push('--rows', String(reqRows));
+      const child = spawnChild(process.execPath, [wrapperScript, ...sizeArgs, ...spawnArgs], {
         cwd: os.homedir(),
         stdio: 'ignore',
         detached: spawnDetached,
@@ -255,6 +271,30 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnDetached
       setTimeout(() => discoverAndConnect(), 500);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, pid: child.pid }));
+      return;
+    }
+
+    // Resize all active sessions (global cols/rows)
+    if (req.method === 'POST' && pathname === '/api/resize') {
+      let cols = 0, rows = 0;
+      try {
+        const body = await readBody(req);
+        const parsed = JSON.parse(body);
+        cols = parseInt(parsed.cols, 10);
+        rows = parseInt(parsed.rows, 10);
+      } catch {}
+      if (!(cols > 0 && cols <= 400 && rows > 0 && rows <= 200)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid cols/rows' }));
+        return;
+      }
+      for (const session of sessions.values()) {
+        if (session.connected) {
+          sendToWrapper(session, { type: 'resize', cols, rows });
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
       return;
     }
 

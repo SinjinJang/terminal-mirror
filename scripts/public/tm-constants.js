@@ -19,6 +19,6 @@ TM.constants = {
   ],
   SESSION_REFRESH_MS: 5000,
   MOBILE_BREAKPOINT: 768,
-  DEFAULT_SETTINGS: { fontSize: window.innerWidth <= 768 ? 14 : 13, lineHeight: 1.4, scrollback: 50000 },
+  DEFAULT_SETTINGS: { fontSize: window.innerWidth <= 768 ? 14 : 13, lineHeight: 1.4, scrollback: 50000, cols: 80, rows: 24 },
   TEXT_VIEW_DEBOUNCE_MS: 80,
 };
