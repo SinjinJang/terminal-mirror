@@ -1,26 +1,11 @@
 window.TM = window.TM || {};
 TM.settings = (function() {
-  const { SETTINGS_KEY, SHORTCUTS_KEY, DEFAULT_SHORTCUTS, DEFAULT_SETTINGS } = TM.constants;
+  const { SHORTCUTS_KEY, DEFAULT_SHORTCUTS, DEFAULT_SETTINGS } = TM.constants;
 
   function clampNum(val, min, max) { return Math.min(max, Math.max(min, val)); }
 
   function loadSettings() {
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return { ...DEFAULT_SETTINGS };
-      const parsed = JSON.parse(raw);
-      return {
-        fontSize: clampNum(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize, 10, 24),
-        lineHeight: clampNum(parsed.lineHeight ?? DEFAULT_SETTINGS.lineHeight, 1.0, 2.0),
-        scrollback: clampNum(parsed.scrollback ?? DEFAULT_SETTINGS.scrollback, 1000, 100000),
-        cols: clampNum(parsed.cols ?? DEFAULT_SETTINGS.cols, 1, 400),
-        rows: clampNum(parsed.rows ?? DEFAULT_SETTINGS.rows, 1, 200),
-      };
-    } catch { return { ...DEFAULT_SETTINGS }; }
-  }
-
-  function saveSettings(s) {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    return { ...DEFAULT_SETTINGS };
   }
 
   function loadShortcuts() {
@@ -45,5 +30,5 @@ TM.settings = (function() {
     localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(sc));
   }
 
-  return { clampNum, loadSettings, saveSettings, loadShortcuts, saveShortcuts };
+  return { clampNum, loadSettings, loadShortcuts, saveShortcuts };
 })();

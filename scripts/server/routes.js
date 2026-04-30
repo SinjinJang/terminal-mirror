@@ -240,22 +240,9 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnDetached
       const spawnArgs = Array.isArray(spawnCommand) ? spawnCommand : spawnCommand.split(/\s+/);
       const wrapperScript = path.join(__dirname, '..', 'tm-wrapper.js');
 
-      let reqCols = null, reqRows = null;
-      try {
-        const body = await readBody(req);
-        if (body) {
-          const parsed = JSON.parse(body);
-          const c = parseInt(parsed.cols, 10);
-          const r = parseInt(parsed.rows, 10);
-          if (c > 0 && c <= 400) reqCols = c;
-          if (r > 0 && r <= 200) reqRows = r;
-        }
-      } catch {}
-
-      const effectiveCols = reqCols || config.spawnDefaultCols || null;
-      const sizeArgs = [];
-      if (effectiveCols) sizeArgs.push('--cols', String(effectiveCols));
-      if (reqRows) sizeArgs.push('--rows', String(reqRows));
+      const effectiveCols = config.spawnDefaultCols || 80;
+      const effectiveRows = config.spawnDefaultRows || 25;
+      const sizeArgs = ['--cols', String(effectiveCols), '--rows', String(effectiveRows)];
       const child = spawnChild(process.execPath, [wrapperScript, ...sizeArgs, ...spawnArgs], {
         cwd: os.homedir(),
         stdio: 'ignore',
@@ -317,11 +304,23 @@ function setupRoutes(httpServer, { sessions, config, spawnSession, spawnDetached
       }
 
       try {
-        const content = fs.readFileSync(filePath);
         const ext = path.extname(filePath);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': contentType });
-        res.end(content);
+        if (requestedFile === 'index.html') {
+          const html = fs.readFileSync(filePath, 'utf-8');
+          const settings = {
+            fontSize: config.fontSize ?? null,
+            lineHeight: config.lineHeight ?? null,
+            scrollback: config.scrollback ?? null,
+          };
+          const out = html.replace('__TM_SERVER_SETTINGS__', JSON.stringify(settings));
+          res.writeHead(200, { 'Content-Type': contentType });
+          res.end(out);
+        } else {
+          const content = fs.readFileSync(filePath);
+          res.writeHead(200, { 'Content-Type': contentType });
+          res.end(content);
+        }
       } catch {
         res.writeHead(404); res.end('Not Found');
       }

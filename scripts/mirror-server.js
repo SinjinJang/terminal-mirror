@@ -62,6 +62,41 @@ for (let i = 0; i < rawArgs.length; i++) {
       process.stderr.write('Invalid port number. Must be 1-65535.\n');
       process.exit(1);
     }
+  } else if (rawArgs[i] === '--spawn-default-cols' && rawArgs[i + 1]) {
+    const v = parseInt(rawArgs[++i], 10);
+    if (isNaN(v) || v < 1 || v > 400) {
+      process.stderr.write('Invalid --spawn-default-cols. Must be 1-400.\n');
+      process.exit(1);
+    }
+    config.spawnDefaultCols = v;
+  } else if (rawArgs[i] === '--spawn-default-rows' && rawArgs[i + 1]) {
+    const v = parseInt(rawArgs[++i], 10);
+    if (isNaN(v) || v < 1 || v > 200) {
+      process.stderr.write('Invalid --spawn-default-rows. Must be 1-200.\n');
+      process.exit(1);
+    }
+    config.spawnDefaultRows = v;
+  } else if (rawArgs[i] === '--font-size' && rawArgs[i + 1]) {
+    const v = parseInt(rawArgs[++i], 10);
+    if (isNaN(v) || v < 10 || v > 24) {
+      process.stderr.write('Invalid --font-size. Must be 10-24.\n');
+      process.exit(1);
+    }
+    config.fontSize = v;
+  } else if (rawArgs[i] === '--line-height' && rawArgs[i + 1]) {
+    const v = parseFloat(rawArgs[++i]);
+    if (isNaN(v) || v < 1.0 || v > 2.0) {
+      process.stderr.write('Invalid --line-height. Must be 1.0-2.0.\n');
+      process.exit(1);
+    }
+    config.lineHeight = v;
+  } else if (rawArgs[i] === '--scrollback' && rawArgs[i + 1]) {
+    const v = parseInt(rawArgs[++i], 10);
+    if (isNaN(v) || v < 1000 || v > 100000) {
+      process.stderr.write('Invalid --scrollback. Must be 1000-100000.\n');
+      process.exit(1);
+    }
+    config.scrollback = v;
   }
 }
 

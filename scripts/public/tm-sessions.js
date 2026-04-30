@@ -51,12 +51,7 @@ TM.sessions = (function() {
       const btn = this;
       btn.disabled = true;
       try {
-        const s = TM.settings.loadSettings();
-        const resp = await fetch('/api/spawn', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cols: s.cols, rows: s.rows }),
-        });
+        const resp = await fetch('/api/spawn', { method: 'POST' });
         if (resp.ok) {
           const { pid } = await resp.json();
           setTimeout(async () => {

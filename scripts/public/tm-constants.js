@@ -4,7 +4,6 @@ TM.constants = {
   MAX_SELECTED_TEXT_DISPLAY: 80,
   MAX_RECONNECT: 5,
   COMMENT_COLORS: ['#ff9e64', '#7aa2f7', '#9ece6a', '#bb9af7', '#7dcfff'],
-  SETTINGS_KEY: 'terminal-mirror-settings',
   SHORTCUTS_KEY: 'terminal-mirror-shortcuts',
   DEFAULT_SHORTCUTS: [
     { id: 'esc',       label: 'ESC',       data: '\x1b',   sendEnter: false, type: 'builtin', hidden: false },
@@ -19,6 +18,13 @@ TM.constants = {
   ],
   SESSION_REFRESH_MS: 5000,
   MOBILE_BREAKPOINT: 768,
-  DEFAULT_SETTINGS: { fontSize: window.innerWidth <= 768 ? 14 : 13, lineHeight: 1.4, scrollback: 50000, cols: 80, rows: 24 },
+  DEFAULT_SETTINGS: (function() {
+    const s = window.TM_SERVER_SETTINGS || {};
+    return {
+      fontSize: s.fontSize ?? (window.innerWidth <= 768 ? 14 : 13),
+      lineHeight: s.lineHeight ?? 1.4,
+      scrollback: s.scrollback ?? 50000,
+    };
+  })(),
   TEXT_VIEW_DEBOUNCE_MS: 80,
 };

@@ -1,7 +1,7 @@
 window.TM = window.TM || {};
 TM.settingsPanel = (function() {
   const { DEFAULT_SETTINGS } = TM.constants;
-  const { clampNum, loadSettings, saveSettings } = TM.settings;
+  const { clampNum, loadSettings } = TM.settings;
   const { showToast } = TM.utils;
 
   let ctx = null;
@@ -104,7 +104,6 @@ TM.settingsPanel = (function() {
       currentSettings.fontSize = v;
       fontSizeValue.textContent = v;
       applySettings(currentSettings);
-      saveSettings(currentSettings);
     });
 
     lineHeightRange.addEventListener('input', () => {
@@ -112,29 +111,23 @@ TM.settingsPanel = (function() {
       currentSettings.lineHeight = Math.round(v * 10) / 10;
       lineHeightValue.textContent = currentSettings.lineHeight;
       applySettings(currentSettings);
-      saveSettings(currentSettings);
     });
 
     scrollbackInput.addEventListener('input', () => {
       const v = clampNum(parseInt(scrollbackInput.value, 10) || DEFAULT_SETTINGS.scrollback, 1000, 100000);
       currentSettings.scrollback = v;
       applySettings(currentSettings);
-      saveSettings(currentSettings);
     });
 
     colsInput.addEventListener('change', () => {
       const v = clampNum(parseInt(colsInput.value, 10) || 80, 1, 400);
       colsInput.value = v;
-      currentSettings.cols = v;
-      saveSettings(currentSettings);
-      sendTerminalResize(v, parseInt(rowsInput.value, 10) || 24);
+      sendTerminalResize(v, parseInt(rowsInput.value, 10) || 25);
     });
 
     rowsInput.addEventListener('change', () => {
-      const v = clampNum(parseInt(rowsInput.value, 10) || 24, 1, 200);
+      const v = clampNum(parseInt(rowsInput.value, 10) || 25, 1, 200);
       rowsInput.value = v;
-      currentSettings.rows = v;
-      saveSettings(currentSettings);
       sendTerminalResize(parseInt(colsInput.value, 10) || 80, v);
     });
 
@@ -142,7 +135,6 @@ TM.settingsPanel = (function() {
       currentSettings = { ...DEFAULT_SETTINGS };
       syncSettingsUI(currentSettings);
       applySettings(currentSettings);
-      saveSettings(currentSettings);
       showToast('Settings reset to defaults');
     });
   }
