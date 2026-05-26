@@ -21,7 +21,7 @@ TM.constants = {
   DEFAULT_SETTINGS: (function() {
     const s = window.TM_SERVER_SETTINGS || {};
     return {
-      fontSize: s.fontSize ?? (window.innerWidth <= 768 ? 14 : 13),
+      fontSize: s.fontSize ?? 14,
       lineHeight: s.lineHeight ?? 1.4,
       scrollback: s.scrollback ?? 50000,
     };
