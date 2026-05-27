@@ -12,6 +12,95 @@ TM.comments = (function() {
     setupEventListeners();
   }
 
+  // Resolve the comment's current row.
+  // xterm markers only track buffer shifts via insert/trim events, not content
+  // rewritten in place (e.g. claude CLAUDE_CODE_NO_FLICKER uses cursor moves +
+  // overwrite). We search for the snapshotted quoteLineText inside the visible
+  // viewport plus a margin, using neighbor-line context to disambiguate
+  // repeated quote text (e.g. separator lines).
+  const VIEWPORT_SEARCH_MARGIN = 200;
+
+  function readLineText(buf, idx) {
+    if (idx < 0 || idx >= buf.length) return null;
+    const line = buf.getLine(idx);
+    return line ? line.translateToString(true).trim() : null;
+  }
+
+  function candidateScore(buf, idx, c) {
+    let score = 0;
+    if (c.quoteBeforeText && readLineText(buf, idx - 1) === c.quoteBeforeText) score++;
+    if (c.quoteAfterText && readLineText(buf, idx + 1) === c.quoteAfterText) score++;
+    return score;
+  }
+
+  function effectiveRow(c) {
+    const markerRow = (c.marker && !c.marker.isDisposed && c.marker.line >= 0) ? c.marker.line : null;
+    const baseRow = markerRow != null ? markerRow : c.startRow;
+    if (baseRow == null) return null;
+
+    const xt = ctx.state.xterm;
+    const target = c.quoteLineText;
+    if (!xt || !target) return baseRow;
+
+    const buf = xt.buffer.active;
+    const viewportY = buf.viewportY;
+    const top = Math.max(0, viewportY - VIEWPORT_SEARCH_MARGIN);
+    const bottom = Math.min(buf.length, viewportY + xt.rows + VIEWPORT_SEARCH_MARGIN);
+
+    // Collect all lines in the search range that match the target text.
+    // Verified matches (context score > 0) win over target-only matches.
+    let bestVerified = null;
+    let bestVerifiedScore = 0;
+    let bestVerifiedDist = Infinity;
+    const targetOnly = [];
+
+    for (let i = top; i < bottom; i++) {
+      if (readLineText(buf, i) !== target) continue;
+      const score = candidateScore(buf, i, c);
+      if (score > 0) {
+        const dist = Math.abs(i - baseRow);
+        if (score > bestVerifiedScore || (score === bestVerifiedScore && dist < bestVerifiedDist)) {
+          bestVerified = i;
+          bestVerifiedScore = score;
+          bestVerifiedDist = dist;
+        }
+      } else {
+        targetOnly.push(i);
+      }
+    }
+
+    if (bestVerified != null) {
+      c._lastKnownRow = bestVerified;
+      return bestVerified;
+    }
+    // Only one target-only match in range — assume it's the original.
+    if (targetOnly.length === 1) {
+      c._lastKnownRow = targetOnly[0];
+      return targetOnly[0];
+    }
+    // No reliable match in the visible region — hide the marker.
+    return null;
+  }
+
+  function attachMarker(c) {
+    if (c.startRow == null) return;
+    const xt = ctx.state.xterm;
+    if (!xt) return;
+    try {
+      const buf = xt.buffer.active;
+      const cursorAbs = buf.baseY + buf.cursorY;
+      const m = xt.registerMarker(c.startRow - cursorAbs);
+      if (m) c.marker = m;
+    } catch {}
+  }
+
+  function disposeMarker(c) {
+    if (c && c.marker && !c.marker.isDisposed) {
+      try { c.marker.dispose(); } catch {}
+    }
+    if (c) c.marker = null;
+  }
+
   // Called after initXterm creates the DOM elements
   function initRenderers(xtermContainer) {
     gutterMarkersEl = xtermContainer.querySelector('.gutter-markers');
@@ -24,10 +113,10 @@ TM.comments = (function() {
     const submitted = ctx.state.submitted;
     const xterm = ctx.state.xterm;
     const allComments = [
-      ...comments.map((c, i) => ({ ...c, _submitted: false, _ci: i })),
-      ...submitted.map(c => ({ ...c, _submitted: true, _ci: 0 })),
+      ...comments.map((c, i) => ({ ...c, _submitted: false, _ci: i, _row: effectiveRow(c) })),
+      ...submitted.map(c => ({ ...c, _submitted: true, _ci: 0, _row: effectiveRow(c) })),
     ];
-    const withRows = allComments.filter(c => c.startRow != null);
+    const withRows = allComments.filter(c => c._row != null);
     if (withRows.length === 0) return null;
 
     const viewportY = xterm.buffer.active.viewportY;
@@ -50,7 +139,7 @@ TM.comments = (function() {
     const { allComments: withRows, viewportY, rows, containerRect, screenRect, ch } = layout;
 
     for (const c of withRows) {
-      const vRow = c.startRow - viewportY;
+      const vRow = c._row - viewportY;
       if (vRow < 0 || vRow >= rows) continue;
       const dot = document.createElement('div');
       dot.className = 'gutter-marker' + (c._submitted ? ' submitted' : '');
@@ -111,6 +200,8 @@ TM.comments = (function() {
       deleteBtn.textContent = 'Delete';
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        const target = ctx.state.comments.find(x => x.id === c.id);
+        disposeMarker(target);
         ctx.state.comments = ctx.state.comments.filter(x => x.id !== c.id);
         ctx.state.expandedCommentId = null;
         renderCommentOverlays();
@@ -138,7 +229,7 @@ TM.comments = (function() {
 
     const byRow = {};
     for (const c of withRows) {
-      const vRow = c.startRow - viewportY;
+      const vRow = c._row - viewportY;
       if (vRow < 0 || vRow >= rows) continue;
       if (!byRow[vRow]) byRow[vRow] = [];
       byRow[vRow].push(c);
@@ -234,7 +325,9 @@ TM.comments = (function() {
       if (existing) existing.comment = text;
     } else {
       if (!ctx.state.activeComment) return;
-      ctx.state.comments.push({ ...ctx.state.activeComment, comment: text, id: ctx.state.nextCommentId++ });
+      const c = { ...ctx.state.activeComment, comment: text, id: ctx.state.nextCommentId++ };
+      attachMarker(c);
+      ctx.state.comments.push(c);
     }
     hideCommentPopup();
     renderCommentOverlays();
@@ -267,24 +360,20 @@ TM.comments = (function() {
     }
 
     const parts = [];
-    const xterm = ctx.state.xterm;
     for (const c of comments) {
       const lines = c.selectedText ? c.selectedText.split('\n').filter(l => l.trim()) : [];
       let firstLine = '';
-      if (c.startRow != null && xterm) {
-        const bufLine = xterm.buffer.active.getLine(c.startRow);
-        if (bufLine) {
-          const fullLine = bufLine.translateToString(true).trim();
-          const selFirst = lines.length > 0 ? lines[0].trim() : '';
-          const idx = selFirst ? fullLine.indexOf(selFirst) : -1;
-          if (idx >= 0 && selFirst !== fullLine) {
-            const before = fullLine.substring(0, idx);
-            const after = lines.length > 1 ? '' : fullLine.substring(idx + selFirst.length);
-            const closeTag = lines.length > 1 ? '' : '</QUOTE>';
-            firstLine = (before + '<QUOTE>' + selFirst + closeTag + after).substring(0, MAX_SELECTED_TEXT_DISPLAY + 30);
-          } else {
-            firstLine = fullLine.substring(0, MAX_SELECTED_TEXT_DISPLAY);
-          }
+      const fullLine = (c.quoteLineText || '').trim();
+      if (fullLine) {
+        const selFirst = lines.length > 0 ? lines[0].trim() : '';
+        const idx = selFirst ? fullLine.indexOf(selFirst) : -1;
+        if (idx >= 0 && selFirst !== fullLine) {
+          const before = fullLine.substring(0, idx);
+          const after = lines.length > 1 ? '' : fullLine.substring(idx + selFirst.length);
+          const closeTag = lines.length > 1 ? '' : '</QUOTE>';
+          firstLine = (before + '<QUOTE>' + selFirst + closeTag + after).substring(0, MAX_SELECTED_TEXT_DISPLAY + 30);
+        } else {
+          firstLine = fullLine.substring(0, MAX_SELECTED_TEXT_DISPLAY);
         }
       }
       if (!firstLine && lines.length > 0) {
@@ -319,6 +408,7 @@ TM.comments = (function() {
     const resultParts = [];
     if (hasComments) {
       resultParts.push(`${comments.length} comment(s)`);
+      for (const c of comments) disposeMarker(c);
       ctx.state.comments = [];
     }
     if (hasMessage) {

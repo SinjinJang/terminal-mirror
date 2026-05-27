@@ -300,6 +300,21 @@
       lastMousePos = { x: e.clientX, y: e.clientY };
     });
 
+    function snapshotLineWithContext(row) {
+      const out = { quoteLineText: '', quoteBeforeText: '', quoteAfterText: '' };
+      if (row == null) return out;
+      const buf = xterm.buffer.active;
+      const read = (r) => {
+        if (r < 0 || r >= buf.length) return '';
+        const ln = buf.getLine(r);
+        return ln ? ln.translateToString(true).trim() : '';
+      };
+      out.quoteLineText = read(row);
+      out.quoteBeforeText = read(row - 1);
+      out.quoteAfterText = read(row + 1);
+      return out;
+    }
+
     // Selection handling (skip during gutter drag)
     xterm.onSelectionChange(() => {
       if (gutterDragging) return;
@@ -321,7 +336,8 @@
       const pos = xterm.getSelectionPosition();
       const selStartRow = pos ? Math.min(pos.start.y, pos.end.y) : null;
       const selEndRow = pos ? Math.max(pos.start.y, pos.end.y) : null;
-      pendingSelection = { selectedText: text.substring(0, MAX_SELECTED_TEXT), startRow: selStartRow, endRow: selEndRow };
+      const snap = snapshotLineWithContext(selStartRow);
+      pendingSelection = { selectedText: text.substring(0, MAX_SELECTED_TEXT), startRow: selStartRow, endRow: selEndRow, ...snap };
     });
 
     // ── GitHub-style line gutter helpers ──
@@ -360,7 +376,8 @@
       const lineText = line.translateToString(true);
       if (!lineText.trim()) return;
       xterm.select(0, bufferRow, xterm.cols);
-      pendingSelection = { selectedText: lineText.trim().substring(0, MAX_SELECTED_TEXT), startRow: bufferRow, endRow: bufferRow };
+      const snap = snapshotLineWithContext(bufferRow);
+      pendingSelection = { selectedText: lineText.trim().substring(0, MAX_SELECTED_TEXT), startRow: bufferRow, endRow: bufferRow, ...snap };
     }
 
     function selectLineRange(fromRow, toRow) {
@@ -374,7 +391,8 @@
       const fullText = lines.join('\n').trim();
       if (!fullText) return;
       xterm.select(0, startRow, (endRow - startRow + 1) * xterm.cols);
-      pendingSelection = { selectedText: fullText.substring(0, MAX_SELECTED_TEXT), startRow, endRow };
+      const snap = snapshotLineWithContext(startRow);
+      pendingSelection = { selectedText: fullText.substring(0, MAX_SELECTED_TEXT), startRow, endRow, ...snap };
     }
 
     function updateHighlight(startVRow, endVRow) {
